@@ -275,20 +275,33 @@ namespace HA::UI
         return b;
     }
 
+    namespace
+    {
+        // "E" -> "E (double tap)" / "E (hold)"
+        std::string WithTriggerText(std::string label, Trigger t)
+        {
+            switch (t) {
+            case Trigger::DoubleTap: return TLF("{0} (double tap)", { label });
+            case Trigger::Hold: return TLF("{0} (hold)", { label });
+            default: return label;
+            }
+        }
+    }
+
     std::string CodeLabel(std::uint32_t code)
     {
         if (code == kUnbound) return TL("Unbound");
         const auto held = HoldOf(code) ? CodeLabel(HoldOf(code)) + " + " : std::string();
-        if (CodeDevice(code) != Device::Keyboard) return held + ButtonLabel(CodeDevice(code), CodeId(code));
-        return held + ComboLabel(ComboKey(code), ComboMods(code));
+        if (CodeDevice(code) != Device::Keyboard) return WithTriggerText(held + ButtonLabel(CodeDevice(code), CodeId(code)), TriggerOf(code));
+        return WithTriggerText(held + ComboLabel(ComboKey(code), ComboMods(code)), TriggerOf(code));
     }
 
     std::string ComboLabel(const Binding& b)
     {
         if (b.key == kUnbound) return TL("Unbound");
         const auto held = b.hold ? CodeLabel(b.hold) + " + " : std::string();
-        if (b.device != Device::Keyboard) return held + ButtonLabel(b.device, b.key);
-        return held + ComboLabel(b.key, b.mods);
+        if (b.device != Device::Keyboard) return WithTriggerText(held + ButtonLabel(b.device, b.key), b.trigger);
+        return WithTriggerText(held + ComboLabel(b.key, b.mods), b.trigger);
     }
 
     // Key column: the binding's key and the gamepad button added to it ("T / RB"). Seen

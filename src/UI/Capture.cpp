@@ -12,6 +12,7 @@ namespace HA::UI
         std::uint32_t g_pendingModifier = 0;  // Shift / Ctrl / Alt pressed, not yet let go (DIK)
         std::uint32_t g_pendingFirst    = 0;  // key or mouse button held first (code), 0 = none
         std::uint32_t g_pendingPad      = 0;  // gamepad button held first (GamepadButton), 0 = none
+        Trigger       g_trigger         = Trigger::Press;  // chosen with the Double tap / Hold buttons
     }
 
     void ClearPending()
@@ -71,6 +72,7 @@ namespace HA::UI
         g_capture.reset();
         ClearPending();
         SyncMenuHotkey();
+        PauseTriggers(false);
     }
 
 
@@ -79,6 +81,8 @@ namespace HA::UI
         // Ends a capture with the input code `code` (see MakeCode, WithHold).
         void FinishCapture(std::uint32_t code)
         {
+            // double tap / hold: not for a stick or the wheel, they have no real press and release
+            if (!IsStick(BaseCode(code)) && !IsWheel(BaseCode(code))) code = WithTrigger(code, g_trigger);
             // a gamepad button for a key or mouse action goes to the action's own gamepad mapping,
             // or is added next to it when there is none: the key stays
             if (CodeDevice(code) == Device::Gamepad && CodeDevice(g_capture->defaultKey) != Device::Gamepad)
@@ -179,8 +183,10 @@ namespace HA::UI
     {
         g_capture = b;
         ClearPending();
+        g_trigger = b.trigger;          // a double tap / hold stays one unless switched off
         g_padPrev = PadButtonsHeld();  // buttons already held don't count
         SyncMenuHotkey();
+        PauseTriggers(true);  // the keys pressed now are for the capture, not for double taps
     }
 
     namespace
@@ -267,6 +273,25 @@ namespace HA::UI
         if (ImGui::Button(Id(TL("Cancel"), "cancelcapture").c_str())) {
             EndCapture();
             return;
+        }
+
+        // how the new input is used: a plain press, or one of these two (a second click turns it off)
+        if (!stick) {
+            const ImGui::ImVec4 idle(0.16f, 0.16f, 0.18f, 1.0f), hover(0.24f, 0.42f, 0.66f, 1.0f), on(0.14f, 0.36f, 0.62f, 1.0f);
+            const auto          toggle = [&](const char* label, const char* id, Trigger t, const char* tip) {
+                const bool lit = g_trigger == t;
+                ImGui::PushStyleColor(ImGui::ImGuiCol_Button, lit ? on : idle);
+                ImGui::PushStyleColor(ImGui::ImGuiCol_ButtonHovered, lit ? on : hover);
+                ImGui::PushStyleColor(ImGui::ImGuiCol_ButtonActive, on);
+                if (ImGui::Button(Id(TL(label), id).c_str())) g_trigger = lit ? Trigger::Press : t;
+                ImGui::PopStyleColor(3);
+                if (ImGui::IsItemHovered()) Tooltip(TL(tip));
+            };
+            toggle(N_("Double tap"), "trigdouble", Trigger::DoubleTap,
+                N_("The bind works on a quick double press. A single press still does what it did, a moment later."));
+            ImGui::SameLine();
+            toggle(N_("Hold"), "trighold", Trigger::Hold,
+                N_("The bind works when the button is held down for a moment. A short press still does what it did."));
         }
 
         // gamepad: the binding itself, or a button added to a key or mouse action

@@ -25,6 +25,19 @@ namespace HA
             std::uint32_t to;    // combo written in the mod's config
         };
 
+        // A bind used by a double tap or by holding its input (see Trigger), of a Skyrim control
+        // (`event`, in context `ctx`) or of a mod key (`to`, the combo in the mod's config).
+        struct TriggerBind
+        {
+            std::uint32_t     code;  // input without its Trigger; may carry a held input
+            Trigger           trigger;
+            int               ctx;  // -1: a mod key, any context
+            RE::BSFixedString event;
+            std::uint32_t     to = kUnbound;
+        };
+        std::vector<TriggerBind> g_triggers;
+        std::atomic<bool>        g_triggersPaused{ false };  // a bind is being captured in the menu
+
         std::vector<ComboBind>                               g_combos;
         // Skyrim controls moved from a key to a mouse button, or given an extra gamepad button:
         // the button press gets the event
@@ -52,6 +65,7 @@ namespace HA
         g_combos.clear();
         g_buttonBinds.clear();
         g_stickBinds.clear();
+        g_triggers.clear();
         // <ctx>|<event>|<original key> -> ctx, event
         const auto parse = [](const std::string& id) -> std::optional<std::pair<int, RE::BSFixedString>> {
             const auto p1 = id.find('|');
@@ -61,7 +75,15 @@ namespace HA
             if (!ctx) return std::nullopt;
             return std::pair{ static_cast<int>(*ctx), RE::BSFixedString(id.substr(p1 + 1, p2 - p1 - 1)) };
         };
+        // a double tap / hold is told apart from a plain press by the hook (see ProcessInput)
+        const auto addTrigger = [](std::uint32_t key, int ctx, RE::BSFixedString event, std::uint32_t to) {
+            g_triggers.push_back({ WithTrigger(key, Trigger::Press), TriggerOf(key), ctx, std::move(event), to });
+        };
         for (const auto& [id, ov] : g_overrides) {
+            if (TriggerOf(ov.key) != Trigger::Press) {
+                if (const auto p = parse(id)) addTrigger(ov.key, p->first, p->second, kUnbound);
+                continue;
+            }
             const bool held    = HoldOf(ov.key) != 0;
             const bool combo   = CodeDevice(ov.key) == Device::Keyboard && ov.key != kUnbound && (ComboMods(ov.key) || held);
             const bool toMouse = CodeDevice(ov.original) == Device::Keyboard && CodeDevice(ov.key) == Device::Mouse;
@@ -77,15 +99,26 @@ namespace HA
                 (toStick ? g_stickBinds : g_buttonBinds).push_back({ ctx, ov.key, event });
         }
         for (const auto& [id, ov] : g_padControls)
-            if (const auto p = parse(id)) (IsStick(ov.key) ? g_stickBinds : g_buttonBinds).push_back({ p->first, ov.key, p->second });
+            if (const auto p = parse(id)) {
+                if (TriggerOf(ov.key) != Trigger::Press)
+                    addTrigger(ov.key, p->first, p->second, kUnbound);
+                else
+                    (IsStick(ov.key) ? g_stickBinds : g_buttonBinds).push_back({ p->first, ov.key, p->second });
+            }
 
         g_remaps.clear();
         g_blocked.clear();
+        const auto addRemap = [&](const Override& ov) {
+            if (TriggerOf(ov.key) != Trigger::Press)
+                addTrigger(ov.key, -1, {}, ov.original);
+            else
+                g_remaps.push_back({ ov.key, ov.original });
+        };
         // an unbound key has no new combo: nothing to translate, only the old one to hide
         for (const auto& [id, ov] : g_fileEdits)
-            if (ov.key != ov.original && ov.key != kUnbound) g_remaps.push_back({ ov.key, ov.original });
+            if (ov.key != ov.original && ov.key != kUnbound) addRemap(ov);
         // an added gamepad button shows the mod its own key; the key itself keeps working
-        for (const auto& [id, ov] : g_padMods) g_remaps.push_back({ ov.key, ov.original });
+        for (const auto& [id, ov] : g_padMods) addRemap(ov);
         g_stickUsed = !g_stickBinds.empty() || std::ranges::any_of(g_remaps, [](const Remap& r) { return IsStick(r.from); });
         // the old combo stops working for the mod, unless it is also some remap's new combo
         for (const auto& [id, ov] : g_fileEdits)
@@ -237,7 +270,55 @@ namespace HA
             RE::BSFixedString event;               // or the Skyrim control it fires
         };
         StickPress g_stickPress[2];  // left, right
+
+        // ---- double tap / hold
+
+        constexpr ULONGLONG kDoubleTapMs = 300;  // longest gap between the two taps, and longest tap
+        constexpr ULONGLONG kHoldMs      = 400;  // how long an input is held for a hold
+
+        // A press of an input that has double tap / hold binds, until it is clear what it was.
+        // Its events are held back meanwhile; a plain tap is replayed afterwards, so whatever
+        // the input does on its own keeps working, a bit later.
+        struct TriggerPress
+        {
+            enum class Stage
+            {
+                Down,      // pressed, not yet a hold
+                Released,  // tapped once, waiting for a second tap
+                Fired,     // a double tap / hold: its events go to that bind until release
+                Passing    // held too long for a tap: an ordinary press
+            };
+            Stage                      stage;
+            std::uint32_t              phys;  // MakeCode of the key / button
+            RE::INPUT_DEVICE           device;
+            std::uint32_t              id;
+            RE::BSFixedString          event;  // what the game made of the press, for the replay
+            ULONGLONG                  since;  // press (Down), release (Released), firing (Fired)
+            std::optional<TriggerBind> dbl, hold;
+            TriggerBind                fired{};
+            float                      heldOffset = 0.0f;  // secs held before a hold fired
+        };
+        std::vector<TriggerPress> g_presses;
+
+        // Replayed taps: their release comes one frame after their press.
+        struct ReplayUp
+        {
+            RE::INPUT_DEVICE  device;
+            std::uint32_t     id;
+            RE::BSFixedString event;
+        };
+        std::vector<ReplayUp> g_replayUps;
+
+        // No double tap / hold for mod keys while text is typed: letters would come late.
+        bool Typing()
+        {
+            if (auto* cm = RE::ControlMap::GetSingleton(); cm && cm->GetRuntimeData().textEntryCount > 0) return true;
+            auto* ui = RE::UI::GetSingleton();
+            return ui && ui->IsMenuOpen(RE::Console::MENU_NAME);
+        }
     }
+
+    void PauseTriggers(bool paused) { g_triggersPaused = paused; }
 
     // Whether the held part of a combo is down right now, read from Windows / XInput: the
     // event stream only tells about changes.
@@ -294,7 +375,7 @@ namespace HA
         {
             if (g_combos.empty() && g_activeCombos.empty() && g_remaps.empty() && g_activeRemaps.empty() && g_pendingDown.empty() &&
                 g_buttonBinds.empty() && g_activeButtons.empty() && g_pendingUp.empty() && !g_stickUsed && !g_stickPress[0].down &&
-                !g_stickPress[1].down)
+                !g_stickPress[1].down && g_triggers.empty() && g_presses.empty() && g_replayUps.empty())
                 return head;
             g_eventPool.Reset();
 
@@ -384,8 +465,163 @@ namespace HA
                 }
             }
 
+            // ---- double tap / hold. Presses of inputs with such binds are taken out of the list
+            // until it is clear what they are; everything else, and the replayed taps, go on
+            // through the rest below (`input`).
+            std::vector<RE::InputEvent*> input;
+            const auto                   nowMs = GetTickCount64();
+
+            // the press of a plain tap, shown again (with the game's own event for it)
+            const auto replay = [&](const TriggerPress& p, bool down) {
+                const auto e = g_eventPool.Button(p.device, p.id, down ? 1.0f : 0.0f, down ? 0.0f : 0.05f, p.event);
+                if (e) input.push_back(e);
+                relinked = true;
+            };
+            const auto hideButton = [&](RE::ButtonEvent* btn) {
+                btn->SetIDCode(kHiddenKey);
+                btn->SetUserEvent(""sv);
+                seq.push_back(btn);
+            };
+            const auto modButton = [&](std::uint32_t to, bool down, float secs) {
+                const auto dev = CodeDevice(to) == Device::Mouse ? RE::INPUT_DEVICE::kMouse : RE::INPUT_DEVICE::kGamepad;
+                if (auto* e = g_eventPool.Button(dev, CodeId(to), down ? 1.0f : 0.0f, secs, ""sv)) seq.push_back(e);
+            };
+            // The double tap / hold happened: its bind goes down. `btn`: the event of this frame
+            // (the second tap), none when a hold fires on time alone.
+            const auto fire = [&](TriggerPress& p, const TriggerBind& bind, RE::ButtonEvent* btn) {
+                p.stage      = TriggerPress::Stage::Fired;
+                p.fired      = bind;
+                p.heldOffset = btn ? 0.0f : static_cast<float>(nowMs - p.since) / 1000.0f;
+                p.since      = nowMs;
+                relinked     = true;
+                if (bind.to == kUnbound) {  // a Skyrim control: the press carries its event
+                    if (btn) {
+                        btn->SetUserEvent(bind.event);
+                        seq.push_back(btn);
+                    } else if (auto* e = g_eventPool.Button(p.device, p.id, 1.0f, 0.0f, bind.event)) {
+                        seq.push_back(e);
+                    }
+                    return;
+                }
+                if (btn) hideButton(btn);  // a mod key: the mod sees its own key
+                if (CodeDevice(bind.to) == Device::Keyboard)
+                    keyDown(bind.to);
+                else
+                    modButton(bind.to, true, 0.0f);
+            };
+            // An event of an input whose double tap / hold fired, until it is let go.
+            const auto firedEvent = [&](TriggerPress& p, RE::ButtonEvent* btn) {
+                const bool up = !btn->IsPressed();
+                if (p.fired.to == kUnbound) {
+                    auto& data        = btn->GetRuntimeData();  // held from when the hold fired
+                    data.heldDownSecs = (std::max)(0.001f, data.heldDownSecs - p.heldOffset);
+                    btn->SetUserEvent(p.fired.event);
+                    seq.push_back(btn);
+                    return;
+                }
+                hideButton(btn);
+                if (!up) return;
+                relinked = true;
+                if (CodeDevice(p.fired.to) == Device::Keyboard)
+                    keyUp(p.fired.to);
+                else
+                    modButton(p.fired.to, false, (std::max)(0.001f, static_cast<float>(nowMs - p.since) / 1000.0f));
+            };
+
+            // releases of taps replayed last frame, then what time alone decides
+            for (const auto& r : std::exchange(g_replayUps, {}))
+                if (auto* e = g_eventPool.Button(r.device, r.id, 0.0f, 0.05f, r.event)) {
+                    input.push_back(e);
+                    relinked = true;
+                }
+            for (auto it = g_presses.begin(); it != g_presses.end();) {
+                auto&      p   = *it;
+                const auto age = nowMs - p.since;
+                if (p.stage == TriggerPress::Stage::Down && p.hold && age >= kHoldMs) {
+                    fire(p, *p.hold, nullptr);
+                } else if (p.stage == TriggerPress::Stage::Down && !p.hold && age >= kDoubleTapMs) {
+                    replay(p, true);  // too long for a tap: an ordinary press from here on
+                    p.stage = TriggerPress::Stage::Passing;
+                } else if (p.stage == TriggerPress::Stage::Released && age >= kDoubleTapMs) {
+                    replay(p, true);  // no second tap: a plain tap
+                    g_replayUps.push_back({ p.device, p.id, p.event });
+                    it = g_presses.erase(it);
+                    continue;
+                }
+                ++it;
+            }
+
+            // Takes `e` if it belongs to a double tap / hold (hidden, rewritten or held back).
+            const auto takeTrigger = [&](RE::InputEvent* e) -> bool {
+                if (e->GetEventType() != RE::INPUT_EVENT_TYPE::kButton) return false;
+                const auto dev = e->GetDevice();
+                if (dev != RE::INPUT_DEVICE::kKeyboard && dev != RE::INPUT_DEVICE::kMouse && dev != RE::INPUT_DEVICE::kGamepad) return false;
+                const auto d    = dev == RE::INPUT_DEVICE::kKeyboard ? Device::Keyboard : dev == RE::INPUT_DEVICE::kMouse ? Device::Mouse : Device::Gamepad;
+                auto*      btn  = e->AsButtonEvent();
+                const auto id   = btn->GetIDCode();
+                const auto phys = MakeCode(d, id);
+                if (IsWheel(phys)) return false;
+
+                if (const auto it = std::ranges::find(g_presses, phys, &TriggerPress::phys); it != g_presses.end()) {
+                    auto&      p  = *it;
+                    const bool up = !btn->IsPressed();
+                    switch (p.stage) {
+                    case TriggerPress::Stage::Down:
+                        if (!up) {
+                            hideButton(btn);
+                            return true;
+                        }
+                        if (p.dbl) {  // first tap: wait for the second
+                            p.stage = TriggerPress::Stage::Released;
+                            p.since = nowMs;
+                            hideButton(btn);
+                            return true;
+                        }
+                        replay(p, true);  // a plain tap: its press, then this release
+                        g_presses.erase(it);
+                        return false;
+                    case TriggerPress::Stage::Released:
+                        if (!btn->IsDown()) {
+                            hideButton(btn);
+                            return true;
+                        }
+                        fire(p, *p.dbl, btn);  // the second tap
+                        return true;
+                    case TriggerPress::Stage::Fired:
+                        firedEvent(p, btn);
+                        if (up) g_presses.erase(it);
+                        return true;
+                    case TriggerPress::Stage::Passing:
+                        if (up) g_presses.erase(it);
+                        return false;
+                    }
+                }
+
+                if (!btn->IsDown() || g_triggers.empty() || g_triggersPaused) return false;
+                // the binds this press may turn into: the most specific one of each kind
+                const auto base = d == Device::Keyboard ? Combo(id, static_cast<std::uint8_t>(held & ~ModBitForDik(id))) : phys;
+                if (ctx < 0) ctx = ActiveContext();
+                std::optional<bool>        typing;
+                std::optional<TriggerBind> dbl, hold;
+                for (const auto& t : g_triggers) {
+                    if (BaseCode(t.code) != base || !HoldOk(t.code)) continue;
+                    if (t.ctx >= 0 ? t.ctx != ctx : (typing ? *typing : *(typing = Typing()))) continue;
+                    auto& slot = t.trigger == Trigger::DoubleTap ? dbl : hold;
+                    if (!slot || (HoldOf(t.code) && !HoldOf(slot->code))) slot = t;
+                }
+                if (!dbl && !hold) return false;
+                g_presses.push_back({ TriggerPress::Stage::Down, phys, dev, id, btn->QUserEvent(), nowMs, dbl, hold });
+                hideButton(btn);
+                relinked = true;
+                return true;
+            };
+
             for (auto* e = head; e; e = e->next) {
                 restore.emplace_back(e, e->next);
+                if (!takeTrigger(e)) input.push_back(e);
+            }
+
+            for (auto* e : input) {
                 // mouse / gamepad buttons:
                 //  - a mod's button moved to another button of the same device is shown to it as
                 //    its own button, its old button is hidden;
@@ -634,5 +870,7 @@ namespace HA
         g_activeCombos.clear();
         g_activeRemaps.clear();
         g_activeButtons.clear();
+        g_presses.clear();
+        g_replayUps.clear();
     }
 }

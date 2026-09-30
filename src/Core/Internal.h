@@ -200,6 +200,7 @@ namespace HA
 
     void RebuildComboTableLocked();  // caller holds g_ovLock
     void ClearActiveInputs();        // game thread
+    void PauseTriggers(bool paused);  // no new double taps / holds (a bind is being captured); any thread
 
     // Input state straight from Windows / XInput: works whichever UI has focus.
     struct PadState

@@ -25,6 +25,7 @@ namespace HA
     std::uint16_t PhysicalKey(std::uint32_t code, Device in, std::uint32_t original)
     {
         if (code == kUnbound || CodeDevice(code) != in || HoldOf(code)) return 0xFF;  // a combo with a held input: the hook
+        if (TriggerOf(code) != Trigger::Press) return 0xFF;                           // double tap / hold: the hook too
         if (IsStick(code) && !IsStick(original)) return 0xFF;
         if (in != Device::Keyboard) return static_cast<std::uint16_t>(CodeId(code));
         return ComboMods(code) ? 0xFF : static_cast<std::uint16_t>(ComboKey(code));
@@ -117,7 +118,10 @@ namespace HA
                     } else {
                         b.key = m.inputKey;
                     }
-                    if (ov) b.hold = HoldOf(ov->key);  // a combo with a held key or button
+                    if (ov) {
+                        b.hold    = HoldOf(ov->key);  // a combo with a held key or button
+                        b.trigger = TriggerOf(ov->key);
+                    }
                     b.action      = name;
                     // Creation Club controls get their own owner so they can be hidden in the blacklist
                     b.owner       = VanillaOwner(c);

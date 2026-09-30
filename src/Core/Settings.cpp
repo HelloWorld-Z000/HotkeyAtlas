@@ -121,6 +121,7 @@ namespace HA
         const auto org = ParseUInt(rhs.substr(pr + 1));
         if (!key || !org || BaseCode(*key) >= kPadCode + 0x10000 || *org >= kPadCode + 0x10000) return true;  // input codes, see MakeCode
         if (WithHold(*key, HoldOf(*key)) != *key) return true;                                                   // a held input we can't read back
+        if (TriggerOf(*key) > Trigger::Hold || TriggerOf(*org) != Trigger::Press) return true;                   // see Trigger
         if (pad && (CodeDevice(*key) != Device::Gamepad || CodeDevice(*org) == Device::Gamepad)) return true;
 
         if (section == "controlmap" || section == "controlmapgamepad") {

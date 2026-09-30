@@ -29,6 +29,8 @@ namespace HA
         if (newCombo != kUnbound && CodeDevice(newCombo) != home && !(home == Device::Keyboard && CodeDevice(newCombo) == Device::Mouse)) return;
         // a stick action (movement, camera) only moves to the other stick
         if (newCombo != kUnbound && IsStick(binding.defaultKey) && (!IsStick(BaseCode(newCombo)) || HoldOf(newCombo))) return;
+        // double tap / hold need a press and a release: no stick, no wheel
+        if (TriggerOf(newCombo) != Trigger::Press && (IsStick(BaseCode(newCombo)) || IsWheel(BaseCode(newCombo)))) return;
         // combos: gamepad with gamepad, keyboard and mouse with each other
         if (const auto h = HoldOf(newCombo); h && (CodeDevice(h) == Device::Gamepad) != (CodeDevice(newCombo) == Device::Gamepad)) return;
 
@@ -75,7 +77,8 @@ namespace HA
                     msg = TLF("In {0} this bind is also used by: {1}. The game may ignore one of them.", { b.context, conflicts });
 
                 // a key moved to a mouse button takes that button over in this context
-                if (home == Device::Keyboard && newCombo != kUnbound && CodeDevice(newCombo) == Device::Mouse && !HoldOf(newCombo)) {
+                if (home == Device::Keyboard && newCombo != kUnbound && CodeDevice(newCombo) == Device::Mouse && !HoldOf(newCombo) &&
+                    TriggerOf(newCombo) == Trigger::Press) {
                     std::string taken;
                     if (auto* mouse = DeviceMappings(cm, b.ctx, Device::Mouse))
                         for (const auto& m : *mouse)
@@ -125,6 +128,7 @@ namespace HA
         if (padCode == binding.padKey || !binding.editable || CodeDevice(binding.defaultKey) == Device::Gamepad) return;
         if (padCode != kUnbound && CodeDevice(padCode) != Device::Gamepad) return;
         if (const auto h = HoldOf(padCode); h && CodeDevice(h) != Device::Gamepad) return;
+        if (TriggerOf(padCode) != Trigger::Press && IsStick(BaseCode(padCode))) return;  // see Rebind
         // a Skyrim action that has a gamepad mapping of its own gets that one rebound instead of a
         // second, added button: one action, one gamepad button
         if (padCode != kUnbound) {

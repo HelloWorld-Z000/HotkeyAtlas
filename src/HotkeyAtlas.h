@@ -92,7 +92,21 @@ namespace HA
     // gamepad 0x20000 | GamepadButton. kUnbound (0xFF) means no input at all.
     // A combo of any two inputs ("hold G, press F") also packs the held one in bits 20-29,
     // see WithHold; keyboard modifiers stay in the key's mods (mods' own files store those).
+    // Bits 30-31 say how the input is used: pressed, tapped twice or held, see Trigger.
     constexpr std::uint32_t kMouseCode = 0x10000, kPadCode = 0x20000;
+
+    enum class Trigger : std::uint8_t
+    {
+        Press,      // a plain press
+        DoubleTap,  // pressed twice in quick succession
+        Hold        // held down for a moment
+    };
+
+    constexpr Trigger TriggerOf(std::uint32_t code) { return code == kUnbound ? Trigger::Press : static_cast<Trigger>((code >> 30) & 3); }
+    constexpr std::uint32_t WithTrigger(std::uint32_t code, Trigger t)
+    {
+        return code == kUnbound ? code : (code & 0x3FFFFFFF) | static_cast<std::uint32_t>(t) << 30;
+    }
 
     constexpr std::uint32_t MakeCode(Device d, std::uint32_t id)
     {
@@ -124,10 +138,10 @@ namespace HA
         }
     }
 
-    // `code` pressed while `hold` is held; hold 0 = a plain `code`.
+    // `code` pressed while `hold` is held; hold 0 = a plain `code`. Its Trigger stays.
     constexpr std::uint32_t WithHold(std::uint32_t code, std::uint32_t hold)
     {
-        code = BaseCode(code);
+        code = code == kUnbound ? code : BaseCode(code) | (code & 0xC0000000);
         if (!hold) return code;
         std::uint32_t h = 0;
         switch (CodeDevice(hold)) {
@@ -147,6 +161,7 @@ namespace HA
         std::uint32_t key  = 0;  // keyboard: DirectInput scancode; mouse / gamepad: MouseButton / GamepadButton
         std::uint8_t  mods = 0;  // Mod bits that must be held with `key`
         std::uint32_t hold = 0;  // input code held before `key` is pressed (see HoldOf), 0 = none
+        Trigger       trigger = Trigger::Press;  // double tap / hold instead of a plain press
         std::string   action;    // human readable action name
         std::string   owner;    // "Skyrim", "Skyrim - Creation Club", "Skyrim - Debug" (see VanillaOwner) or the mod that owns the setting
         std::string   context;  // input context (ControlMap) or ini section
@@ -194,7 +209,7 @@ namespace HA
     inline std::uint32_t CurrentCode(const Binding& b)
     {
         if (b.key == kUnbound) return kUnbound;
-        return WithHold(b.device == Device::Keyboard ? Combo(b.key, b.mods) : MakeCode(b.device, b.key), b.hold);
+        return WithTrigger(WithHold(b.device == Device::Keyboard ? Combo(b.key, b.mods) : MakeCode(b.device, b.key), b.hold), b.trigger);
     }
 
     // Whether pressing `id` on `device` is part of input `code`: its key or button, its held

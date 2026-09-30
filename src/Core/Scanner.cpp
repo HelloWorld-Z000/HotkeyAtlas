@@ -62,7 +62,8 @@ namespace HA
                 b.key    = CodeId(rec->key);
                 b.mods   = 0;
             }
-            b.hold = HoldOf(rec->key);
+            b.hold    = HoldOf(rec->key);
+            b.trigger = TriggerOf(rec->key);
         }
 
         // ---------------------------------------------------------------- ini scanning

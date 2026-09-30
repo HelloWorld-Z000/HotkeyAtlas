@@ -90,7 +90,7 @@ namespace HA::UI
                         break;
                     }
                     const auto& b = model.all[i];
-                    auto line = (b.mods || b.hold ? "[" + ComboLabel(b) + "]  " : std::string()) + b.action + "  -  " + b.owner;
+                    auto line = (b.mods || b.hold || b.trigger != Trigger::Press ? "[" + ComboLabel(b) + "]  " : std::string()) + b.action + "  -  " + b.owner;
                     if (b.kind == Kind::ControlMap) line += " (" + b.context + ')';
                     if (const auto& note = NoteText(b); !note.empty()) line += ":  " + note;
                     ImGui::TextUnformatted(line.c_str());

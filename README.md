@@ -8,6 +8,7 @@ Powered by the SKSE Menu Framework, this mod scans and collects all in-game keyb
 
 * **Full Control Over Binds:** Unbind keys completely, remap them to different buttons, or set up multi-key combinations.
 * **Key Combinations:** Total freedom to create any combo you need. Keyboard + Keyboard, Keyboard + Mouse, and Gamepad + Gamepad combinations are all fully supported.
+* **Double Tap & Hold:** While binding, switch on **Double tap** or **Hold** and the bind fires on a quick double press or when the button is held for a moment. A single short press of that button still does what it did before, just a moment later.
 * **Rich Context & Info:** Detailed information about every single button: what action it performs, which mod it belongs to, and which file it was loaded from.
 * **Notes & Tooltips:** The mod includes a `Notes.json` file with default system tooltips. You can also write your own custom notes directly in the SMF menu by clicking on a note. (Currently, tooltips are available only for vanilla game actions, but I plan to add descriptions for keys added by other mods in future updates.)
 * **Blacklist:** You can blacklist any mod to hide its hotkeys from both the Edit Bind and All Binds menus.
