@@ -115,14 +115,6 @@ namespace HA::UI
                 if (ImGui::IsItemHovered()) Tooltip(TLF("Back to the original bind: {0}", { CodeLabel(b.defaultKey) }));
             }
         }
-
-        // Heights measured on the last frame, per table and line mode.
-        struct TableMetrics
-        {
-            float header = 0.0f;  // from the table's top to its first row
-            float row    = 0.0f;  // one bind's row, borders included
-        };
-        std::unordered_map<std::string, TableMetrics> g_tableMetrics;
     }
 
     // `view`: the device the rows were picked on, see KeyText.
@@ -171,7 +163,7 @@ namespace HA::UI
         // One line per bind when every column fits the window. Else two: Mod, Context and
         // Source move under the other columns (Mod under Action, Context under Note, Source
         // under Edit), so hiding columns brings the single line back. Only when even that
-        // is too wide the table scrolls sideways.
+        // is too wide the stretch columns get narrower than their minimum.
         struct Slot
         {
             ColDef                top;
@@ -203,34 +195,17 @@ namespace HA::UI
                 else
                     slots.push_back({ c, std::nullopt });
             }
-            need = 0.0f;
-            for (const auto& s : slots) need += (std::max)(needOf(s.top), s.bottom ? needOf(*s.bottom) : 0.0f);
         }
-        const bool  anyBottom = std::ranges::any_of(slots, [](const Slot& s) { return s.bottom.has_value(); });
-        const float inner     = (std::max)(avail.x, need);
-
-        // height: all rows when they fit the space left, else that space and the rows scroll
-        // (header row and Key column stay in view). Row and header heights are measured while
-        // drawing, so the table ends right under its last row; the estimate is for the first frame.
-        const std::string metricsId = std::string(id) + (twoLines ? "|2" : "|1");
-        const float       line      = anyBottom ? ImGui::GetTextLineHeightWithSpacing() : 0.0f;
-        const float       rowH      = ImGui::GetFrameHeight() + line + style->CellPadding.y * 2.0f + 1.0f;
-        float             contentH  = rowH * static_cast<float>(rows.size() + 1) + 4.0f;
-        if (const auto m = g_tableMetrics.find(metricsId); m != g_tableMetrics.end())
-            contentH = m->second.header + m->second.row * static_cast<float>(rows.size()) + 2.0f;
-        if (inner > avail.x) contentH += style->ScrollbarSize;
-        const float height = (std::min)(contentH, (std::max)(avail.y, rowH * 8.0f));
+        // No scrolling of its own: the table is as tall as its rows and as wide as the window,
+        // the page scrolls as a whole
         // one line and two keep their column widths apart
         ImGui::PushID(twoLines ? "lines2" : "lines1");
         if (!ImGui::BeginTable(id, static_cast<int>(slots.size()),
                 ImGui::ImGuiTableFlags_RowBg | ImGui::ImGuiTableFlags_Borders | ImGui::ImGuiTableFlags_Resizable |
-                    ImGui::ImGuiTableFlags_Sortable | ImGui::ImGuiTableFlags_SortMulti | ImGui::ImGuiTableFlags_ScrollX |
-                    ImGui::ImGuiTableFlags_ScrollY,
-                ImGui::ImVec2(0.0f, height), inner)) {
+                    ImGui::ImGuiTableFlags_Sortable | ImGui::ImGuiTableFlags_SortMulti)) {
             ImGui::PopID();
             return;
         }
-        ImGui::TableSetupScrollFreeze(showKey ? 1 : 0, 1);
         for (const auto& s : slots) {
             // Key and Edit fit their content (and what sits under them), the rest share the width
             int flags = s.top.weight > 0.0f ? ImGui::ImGuiTableColumnFlags_WidthStretch : ImGui::ImGuiTableColumnFlags_WidthFixed;
@@ -280,28 +255,20 @@ namespace HA::UI
             }
         };
 
-        float firstTop = 0.0f, lastBottom = 0.0f;  // screen y of the first row, bottom of the lowest cell
         for (auto i : rows) {
             const auto& b = model.all[i];
             ImGui::TableNextRow();
             ImGui::PushID(static_cast<int>(i));
             for (int c = 0; c < static_cast<int>(slots.size()); ++c) {
                 ImGui::TableSetColumnIndex(c);
-                if (c == 0 && i == rows.front()) firstTop = ImGui::GetCursorScreenPos().y - style->CellPadding.y;
                 drawCell(b, slots[c].top.id);
                 if (slots[c].bottom) {  // the lower line, dimmed: it describes the one above
                     ImGui::PushStyleColor(ImGui::ImGuiCol_Text, ImGui::ImVec4(0.6f, 0.6f, 0.6f, 1.0f));
                     drawCell(b, slots[c].bottom->id);
                     ImGui::PopStyleColor();
                 }
-                lastBottom = (std::max)(lastBottom, ImGui::GetItemRectMax().y);
             }
             ImGui::PopID();
-        }
-        if (!rows.empty()) {
-            // the table's top in the same coordinates (rows move up as it scrolls)
-            const float top = ImGui::GetWindowPos().y - ImGui::GetScrollY();
-            g_tableMetrics[metricsId] = { firstTop - top, (lastBottom + style->CellPadding.y - firstTop) / static_cast<float>(rows.size()) };
         }
         ImGui::EndTable();
         ImGui::PopID();
