@@ -56,7 +56,7 @@ A text can carry its own translations: `"text": { "english": "Open the map", "ru
 
 ### Translating
 
-Copy `Translations/english.txt` to `<language>.txt` (the game's `sLanguage`, e.g. `german.txt`) and change the right side of each line. `scripts/make-english.ps1` regenerates `english.txt` from the source code and `Notes.json`.
+Copy `Translations/english.txt` to `<language>.txt` (the game's `sLanguage`, e.g. `german.txt`) and change the right side of each line.
 
 ## Building
 
