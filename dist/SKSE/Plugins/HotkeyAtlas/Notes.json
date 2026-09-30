@@ -1,0 +1,211 @@
+{
+  "_readme": [
+    "Hotkey Atlas built-in notes: the Note column text for Skyrim controls and mod hotkeys.",
+    "Read on every scan: after editing press Rescan (Hide mods page) or reload the game. Save as UTF-8.",
+    "Texts are English and are translated by Translations/<language>.txt like the rest of the menu.",
+    "A text can also carry its own translations: { \"english\": \"Open the map\", \"russian\": \"Открыть карту\" }.",
+    "controls: <context> -> <control event> -> text. Contexts: Gameplay, Menu, Console, ItemMenu, Inventory, DebugText,",
+    "  Favorites, Map, Stats, Cursor, Book, DebugOverlay, Journal, TFC, MapDebug, Lockpicking, Marketplace, Favor, Any.",
+    "  A context's own entry wins over the device one, which wins over Any. Event names ignore case, spaces and dashes.",
+    "devices: Keyboard / Mouse / Gamepad -> event -> text, for controls whose meaning depends on the device.",
+    "directions: fallback for Up / Down / Left / Right, the context's description is appended.",
+    "quickSlots: Hotkey1..Hotkey8, {0} is the slot number.",
+    "mods: notes for mod hotkeys. Each entry needs \"setting\" (ini setting or json path, e.g. \"Menu.ToggleKey\")",
+    "  or \"action\" (the name in the Action column), plus \"mod\" (the Mod column) and/or \"file\" (path under Data,",
+    "  or just the file name). \"section\" (the Context column) is optional. The first matching entry is used.",
+    "  Example: { \"mod\": \"TrueHUD\", \"file\": \"SKSE/Plugins/TrueHUD.ini\", \"section\": \"Keys\", \"setting\": \"uToggleKey\", \"text\": \"Show or hide the HUD\" }"
+  ],
+  "controls": {
+    "Gameplay": {
+      "Forward": "Move forward",
+      "Back": "Move backward",
+      "Strafe Left": "Step left",
+      "Strafe Right": "Step right",
+      "Activate": "Interact: talk, open doors and containers, pick up, loot",
+      "Left Attack/Block": "Left hand: attack, block (shield / two-hander) or cast its spell",
+      "Right Attack/Block": "Right hand: attack or cast its spell",
+      "Ready Weapon": "Draw or sheathe weapons and spells",
+      "Tween Menu": "Open the Skills / Items / Map / Magic menu",
+      "Toggle POV": "Switch first / third person; hold to orbit the camera",
+      "Zoom In": "Third-person camera closer",
+      "Zoom Out": "Third-person camera further away",
+      "Jump": "Jump",
+      "Sprint": "Sprint (uses stamina); gallop on a horse",
+      "Shout": "Use the equipped shout or power",
+      "Sneak": "Crouch / sneak",
+      "Run": "Hold to switch between walking and running",
+      "Toggle Always Run": "Switch the default between walking and running",
+      "Auto-Move": "Keep moving forward without holding a key",
+      "Favorites": "Open the Favorites menu",
+      "Quicksave": "Quick save",
+      "Quickload": "Load the latest quick save",
+      "Wait": "Open the Wait menu",
+      "Journal": "Open the Journal (quests, stats, system)",
+      "Pause": "Open the system menu (save, load, settings)",
+      "Quick Inventory": "Open the Inventory directly",
+      "Quick Magic": "Open the Magic menu directly",
+      "Quick Stats": "Open the Skills menu directly",
+      "Quick Map": "Open the Map directly"
+    },
+    "Menu": {
+      "Accept": "Confirm the highlighted option (menus, dialogue, message boxes)",
+      "Cancel": "Close the menu / go back one level",
+      "Up": "Move the selection up in lists, dialogue and message boxes",
+      "Down": "Move the selection down in lists, dialogue and message boxes",
+      "Left": "Move the selection left / previous category",
+      "Right": "Move the selection right / next category"
+    },
+    "Console": {
+      "Up": "Previous command in the console history",
+      "Down": "Next command in the console history",
+      "PageUp": "Scroll the console output up",
+      "PageDown": "Scroll the console output down",
+      "PickPrevious": "Select the previous reference under the cursor",
+      "PickNext": "Select the next reference under the cursor",
+      "Pick": "Select the reference under the cursor"
+    },
+    "ItemMenu": {
+      "LeftEquip": "Equip the highlighted item in the left hand",
+      "RightEquip": "Equip / use the highlighted item (right hand)",
+      "Item Zoom": "Inspect the highlighted item up close",
+      "Rotate": "Rotate the item preview",
+      "XButton": "Drop the item (Inventory) / Take All (Container) / Store (Gift)",
+      "YButton": "Add or remove the item from Favorites"
+    },
+    "Inventory": {
+      "ChargeItem": "Recharge the highlighted enchanted weapon with a soul gem"
+    },
+    "Favorites": {
+      "Up": "Move the selection up in the Favorites list",
+      "Down": "Move the selection down in the Favorites list",
+      "Accept": "Equip the highlighted favorite",
+      "Cancel": "Close the Favorites menu",
+      "LeftEquip": "Equip the highlighted favorite in the left hand",
+      "RightEquip": "Equip the highlighted favorite in the right hand"
+    },
+    "Map": {
+      "Up": "Scroll the map north",
+      "Down": "Scroll the map south",
+      "Left": "Scroll the map west",
+      "Right": "Scroll the map east",
+      "Cancel": "Close the map",
+      "Accept": "Select the marker under the cursor (fast travel)",
+      "Click": "Select the marker under the cursor (fast travel)",
+      "Zoom In": "Zoom the map in",
+      "Zoom Out": "Zoom the map out",
+      "Look": "Rotate / tilt the map camera",
+      "MapLookMode": "Hold to rotate / tilt the map camera",
+      "PlayerPosition": "Center the map on the player",
+      "LocalMap": "Switch between the world map and the local map",
+      "LocalMapMoveMode": "Hold to drag the local map",
+      "PlacePlayerMarker": "Place or remove your custom marker",
+      "Journal": "Open the quest Journal from the map"
+    },
+    "Stats": {
+      "Rotate": "Turn to the next / previous skill constellation",
+      "Cancel": "Leave the perk tree / close the Skills menu"
+    },
+    "Book": {
+      "PrevPage": "Turn to the previous page",
+      "NextPage": "Turn to the next page",
+      "Cancel": "Close the book"
+    },
+    "Journal": {
+      "XButton": "Tab action: delete save / show quest on the map / reset setting",
+      "YButton": "Tab action: toggle quest objectives / character info",
+      "Zoom In": "Scroll the text up",
+      "Zoom Out": "Scroll the text down"
+    },
+    "TFC": {
+      "CameraZUp": "Free camera: move up (camera axis)",
+      "CameraZDown": "Free camera: move down (camera axis)",
+      "WorldZUp": "Free camera: rise straight up",
+      "WorldZDown": "Free camera: sink straight down",
+      "LockToZPlane": "Free camera: keep the current height"
+    },
+    "Lockpicking": {
+      "RotatePick": "Move the lockpick",
+      "RotateLock": "Turn the lock: try to open it at the current pick position",
+      "DebugMode": "Lockpicking debug display (developer)",
+      "Cancel": "Stop picking the lock"
+    },
+    "Marketplace": {
+      "Up": "Move up in the Creation Club menu",
+      "Down": "Move down in the Creation Club menu",
+      "Left": "Move left in the Creation Club menu",
+      "Right": "Move right in the Creation Club menu",
+      "Accept": "Open / confirm in the Creation Club menu",
+      "Cancel": "Back / close the Creation Club menu"
+    },
+    "Favor": {
+      "Activate": "Give the order: move here, use or attack what you look at",
+      "Cancel": "Stop commanding the follower"
+    },
+    "Any": {
+      "Accept": "Confirm the highlighted option",
+      "Cancel": "Close / go back",
+      "Move": "Movement",
+      "Look": "Look around / rotate the camera",
+      "Dual Attack": "Attack with both hands at once",
+      "Grab": "Grab and carry an object",
+      "Screenshot": "Take a screenshot",
+      "Multi-Screenshot": "Take a high-resolution tiled screenshot",
+      "Console": "Open / close the developer console",
+      "CameraPath": "Developer camera path (unused)",
+      "PageUp": "Scroll one page up",
+      "PageDown": "Scroll one page down",
+      "PrevPage": "Previous page / tab",
+      "NextPage": "Next page / tab",
+      "PrevSubPage": "Previous sub-page / sub-category",
+      "NextSubPage": "Next sub-page / sub-category",
+      "NextFocus": "Move focus to the next panel",
+      "PreviousFocus": "Move focus to the previous panel",
+      "LeftEquip": "Equip in the left hand",
+      "RightEquip": "Equip in the right hand",
+      "Equip": "Equip the highlighted item",
+      "Unequip": "Unequip the highlighted item",
+      "DropItem": "Drop the highlighted item",
+      "ToggleFavorite": "Add or remove the highlighted item from Favorites",
+      "Item Zoom": "Inspect the item up close",
+      "Rotate": "Rotate the 3D preview",
+      "RotateItem": "Rotate the 3D preview",
+      "Cursor": "Move the menu cursor",
+      "ToggleCursor": "Show / hide the menu cursor",
+      "Click": "Click with the menu cursor",
+      "Left Stick": "Menu navigation (gamepad left stick)",
+      "Zoom In": "Zoom in",
+      "Zoom Out": "Zoom out",
+      "XButton": "Context button (the action depends on the open menu)",
+      "YButton": "Context button (the action depends on the open menu)",
+      "Take All": "Take every item from the container",
+      "SetActiveQuest": "Make the highlighted quest the active one",
+      "Journal": "Open the Journal",
+      "Pause": "Open the system menu",
+      "Wait": "Open the Wait menu",
+      "Favorites": "Open the Favorites menu"
+    }
+  },
+  "devices": {
+    "Mouse": {
+      "Look": "Look around / rotate the camera with the mouse",
+      "Cursor": "Move the menu cursor with the mouse"
+    },
+    "Gamepad": {
+      "Move": "Movement (left stick)",
+      "Look": "Look around / rotate the camera (right stick)",
+      "Cursor": "Move the menu cursor (stick)"
+    }
+  },
+  "directions": {
+    "Up": "Navigate up",
+    "Down": "Navigate down",
+    "Left": "Navigate left",
+    "Right": "Navigate right"
+  },
+  "quickSlots": {
+    "use": "Use quick slot {0} (item or spell assigned in the Favorites menu)",
+    "favorites": "Assign the highlighted favorite to quick slot {0}"
+  },
+  "mods": [
+  ]
+}

@@ -1,0 +1,22 @@
+# dot folders
+.cache/
+.claude/
+.idea/
+.vs/
+.vscode/
+.xmake/
+
+# build output
+build/
+vs*/
+compile_commands.json
+
+# archives, packaged releases
+*.zip
+*.7z
+
+# editor / OS noise
+*.user
+*.swp
+Thumbs.db
+desktop.ini
