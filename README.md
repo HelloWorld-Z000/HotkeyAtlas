@@ -22,6 +22,10 @@ Works simply and intuitively: just type a preset name, press Enter, and your pre
 
 ---
 
+## Supported game versions
+
+One DLL for every version: Skyrim SE 1.5.97, AE 1.6.317 – 1.6.1170 and 1.7.99 / 1.7.104 (Steam), and GOG (1.6.659, 1.6.1179). Addresses come from the Address Library, so take the Address Library file that matches your game (SE for 1.5.97, AE for 1.6.x and 1.7.x; 1.7.x needs All in One v13+ and SKSE 2.3.1).
+
 ## Requirements
 
 * [SKSE64](https://skse.silverlock.org/)

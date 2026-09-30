@@ -83,7 +83,7 @@ namespace HA
         { N_("Follower cmd"), N_("Commanding a follower (look at a follower and hold Activate)") },
     };
 
-    int         ContextCount();         // 17 on SE, 18 on AE
+    int         ContextCount();         // 18 on 1.6.1130+, 17 before it and on VR
     int         LogicalContext(int c);  // game index -> Ctx, kCtxAny if unknown
     std::string ContextName(int c);
     std::string ContextHint(int c);

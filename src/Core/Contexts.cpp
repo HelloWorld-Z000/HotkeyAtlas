@@ -6,17 +6,22 @@ namespace HA
 {
     // ---------------------------------------------------------------- vanilla controls
 
-    int ContextCount()
+    // Marketplace came with 1.6.1130, not with AE: 1.5.97, 1.6.317-1.6.659 (incl. GOG 1.6.659)
+    // and VR have 17 contexts, and ControlMap's runtime data follows right after them.
+    static bool HasMarketplace()
     {
-        // 1.5.97 has 17 input contexts, 1.6.1130+ has 18 (Marketplace)
-        return REL::Module::IsAE() ? 18 : 17;
+        static const bool has = REL::Module::get().version() >= SKSE::RUNTIME_SSE_1_6_1130;
+        return has;
     }
 
-
+    int ContextCount()
+    {
+        return HasMarketplace() ? 18 : 17;
+    }
 
     int LogicalContext(int c)
     {
-        if (!REL::Module::IsAE() && c >= kCtxMarketplace) ++c;
+        if (!HasMarketplace() && c >= kCtxMarketplace) ++c;
         return c >= 0 && c < kCtxCount ? c : kCtxAny;
     }
 
