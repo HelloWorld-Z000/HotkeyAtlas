@@ -24,10 +24,40 @@ namespace HA::UI
 
     namespace
     {
+        // ---- the keys of this frame. While the input block is on (InputBlock.cpp) they come from
+        // its hook and nothing else gets them, ENB and the like included; else from ImGui.
+
+        std::vector<BlockedInput> g_frame;  // this frame's presses and releases, block on
+
+        bool FrameHas(Device d, std::uint32_t id, bool down)
+        {
+            return std::ranges::any_of(g_frame, [&](const BlockedInput& i) { return i.device == d && i.id == id && i.down == down; });
+        }
+        // Both sources at once: a key the block took never reaches ImGui, one it let through (game
+        // not focused, hook not in) comes the usual way, so the capture works either way.
+        bool KeyPressed(const KeyDef& k) { return FrameHas(Device::Keyboard, k.dik, true) || ImGui::IsKeyPressed(k.key, false); }
+        bool KeyReleased(const KeyDef& k) { return FrameHas(Device::Keyboard, k.dik, false) || ImGui::IsKeyReleased(k.key); }
+        bool KeyDown(const KeyDef& k) { return BlockedHeld(Device::Keyboard, k.dik) || ImGui::IsKeyDown(k.key); }
+
+        // Whether a key or mouse button is down: the block's own record of what it took
+        // (Windows no longer sees those) or Windows / XInput.
+        bool CapHeld(std::uint32_t code)
+        {
+            const auto d = CodeDevice(code);
+            if ((d == Device::Keyboard || (d == Device::Mouse && CodeId(code) >= kMouseMiddle)) &&
+                BlockedHeld(d, d == Device::Keyboard ? ComboKey(code) : CodeId(code)))
+                return true;
+            return IsHeld(code);
+        }
+
         // Windows state first: the menu framework does not always pass modifier keys to ImGui.
         std::uint8_t HeldMods()
         {
-            std::uint8_t m = HeldModsOS();
+            std::uint8_t m = 0;
+            if (BlockedHeld(Device::Keyboard, 42) || BlockedHeld(Device::Keyboard, 54)) m |= kShift;
+            if (BlockedHeld(Device::Keyboard, 29) || BlockedHeld(Device::Keyboard, 157)) m |= kCtrl;
+            if (BlockedHeld(Device::Keyboard, 56) || BlockedHeld(Device::Keyboard, 184)) m |= kAlt;
+            m |= HeldModsOS();
             if (ImGui::IsKeyDown(ImGui::ImGuiKey_LeftShift) || ImGui::IsKeyDown(ImGui::ImGuiKey_RightShift)) m |= kShift;
             if (ImGui::IsKeyDown(ImGui::ImGuiKey_LeftCtrl) || ImGui::IsKeyDown(ImGui::ImGuiKey_RightCtrl)) m |= kCtrl;
             if (ImGui::IsKeyDown(ImGui::ImGuiKey_LeftAlt) || ImGui::IsKeyDown(ImGui::ImGuiKey_RightAlt)) m |= kAlt;
@@ -44,7 +74,7 @@ namespace HA::UI
 
         bool AnyInputHeld()
         {
-            if (PadButtonsHeld()) return true;
+            if (PadButtonsHeld() || AnyBlockedHeld()) return true;
             for (const auto& k : kKeys)
                 if (ImGui::IsKeyDown(k.key)) return true;
             return false;
@@ -73,6 +103,8 @@ namespace HA::UI
         ClearPending();
         SyncMenuHotkey();
         PauseTriggers(false);
+        StopInputBlock();
+        g_frame.clear();
     }
 
 
@@ -165,7 +197,7 @@ namespace HA::UI
         // input, or else a held modifier key, as its held part.
         std::uint32_t KbCompose(std::uint32_t code, std::uint8_t mods)
         {
-            std::uint32_t hold = g_pendingFirst != code && g_pendingFirst && IsHeld(g_pendingFirst) ? g_pendingFirst : 0;
+            std::uint32_t hold = g_pendingFirst != code && g_pendingFirst && CapHeld(g_pendingFirst) ? g_pendingFirst : 0;
             if (CodeDevice(code) == Device::Keyboard) return WithHold(Combo(code, static_cast<std::uint8_t>(mods & ~ModBitForDik(code))), hold);
             if (!hold && mods) {
                 if (g_pendingModifier)
@@ -187,6 +219,7 @@ namespace HA::UI
         g_padPrev = PadButtonsHeld();  // buttons already held don't count
         SyncMenuHotkey();
         PauseTriggers(true);  // the keys pressed now are for the capture, not for double taps
+        StartInputBlock();    // nor for any menu that would open on them
     }
 
     namespace
@@ -194,6 +227,8 @@ namespace HA::UI
         // A mouse button pressed this frame that may be a target: middle, side buttons, wheel.
         std::optional<std::uint32_t> NewMousePress()
         {
+            for (const auto& i : g_frame)
+                if (i.device == Device::Mouse && i.down) return i.id;
             static constexpr std::pair<int, std::uint32_t> kImGuiMouse[] = { { 2, kMouseMiddle }, { 3, kMouse4 }, { 4, kMouse5 } };
             for (const auto& [imgui, button] : kImGuiMouse)
                 if (ImGui::IsMouseClicked(imgui)) return button;
@@ -208,7 +243,7 @@ namespace HA::UI
             const auto mods = HeldMods();
 
             // the input held first, let go without a second one: it alone is the binding
-            if (g_pendingFirst && !IsHeld(g_pendingFirst)) {
+            if (g_pendingFirst && !CapHeld(g_pendingFirst)) {
                 const auto first = std::exchange(g_pendingFirst, 0);
                 if (!(mouseOnly && CodeDevice(first) == Device::Keyboard)) return first;
             }
@@ -232,18 +267,31 @@ namespace HA::UI
             for (const auto& k : kKeys) {
                 if (k.dik == 1) continue;  // Esc closes the menu, it can't be a target here
                 if (ModBitForDik(k.dik)) {
-                    if (ImGui::IsKeyPressed(k.key, false) && !g_pendingModifier) g_pendingModifier = k.dik;
+                    if (KeyPressed(k) && !g_pendingModifier) g_pendingModifier = k.dik;
                     // a modifier let go without another key: it is the key, with the other
                     // modifiers still held (Shift+Ctrl) and the input held first (G+Shift)
-                    if (ImGui::IsKeyReleased(k.key) && g_pendingModifier == k.dik) {
+                    if (KeyReleased(k) && g_pendingModifier == k.dik) {
                         g_pendingModifier = 0;
                         if (!mouseOnly) return KbCompose(k.dik, mods);
                     }
                     continue;
                 }
-                if (ImGui::IsKeyPressed(k.key, false))
+                if (KeyPressed(k))
                     if (const auto r = press(k.dik)) return r;
             }
+            return std::nullopt;
+        }
+    }
+
+    namespace
+    {
+        // Capture for a mod that takes one plain key or mouse button (Kind::Yaml, SkyrimNet): the
+        // first press is the binding, no waiting for a combo; Shift / Ctrl / Alt count as keys.
+        std::optional<std::uint32_t> SingleStep()
+        {
+            if (const auto button = NewMousePress(); button && !IsWheel(MakeCode(Device::Mouse, *button))) return MakeCode(Device::Mouse, *button);
+            for (const auto& k : kKeys)
+                if (k.dik != 1 && KeyPressed(k)) return k.dik;  // Esc cancels
             return std::nullopt;
         }
     }
@@ -262,9 +310,16 @@ namespace HA::UI
             ClearPending();
             return;
         }
-        const auto  home  = CodeDevice(g_capture->defaultKey);
-        const bool  stick = IsStick(g_capture->defaultKey);
-        const char* ask   = stick                    ? N_("Push the stick for: {0} ({1})")
+        g_frame = TakeBlockedInput();
+        if (FrameHas(Device::Keyboard, 1, true)) {  // Esc: the block keeps it from the menu, so it cancels here
+            EndCapture();
+            return;
+        }
+        const auto  home   = CodeDevice(g_capture->defaultKey);
+        const bool  stick  = IsStick(g_capture->defaultKey);
+        const bool  single = g_capture->kind == Kind::Yaml;  // one plain key or mouse button, see SingleStep
+        const char* ask    = single                   ? N_("Press the new key or mouse button for: {0} ({1})")
+                            : stick                    ? N_("Push the stick for: {0} ({1})")
                             : home == Device::Mouse   ? N_("Press the new mouse or gamepad button for: {0} ({1})")
                             : home == Device::Gamepad ? N_("Press the new gamepad button for: {0} ({1})")
                                                       : N_("Press the new keyboard, mouse or gamepad button for: {0} ({1})");
@@ -276,7 +331,7 @@ namespace HA::UI
         }
 
         // how the new input is used: a plain press, or one of these two (a second click turns it off)
-        if (!stick) {
+        if (!stick && !single) {  // a YAML hotkey file takes plain keys only
             const ImGui::ImVec4 idle(0.16f, 0.16f, 0.18f, 1.0f), hover(0.24f, 0.42f, 0.66f, 1.0f), on(0.14f, 0.36f, 0.62f, 1.0f);
             const auto          toggle = [&](const char* label, const char* id, Trigger t, const char* tip) {
                 const bool lit = g_trigger == t;
@@ -292,6 +347,16 @@ namespace HA::UI
             ImGui::SameLine();
             toggle(N_("Hold"), "trighold", Trigger::Hold,
                 N_("The bind works when the button is held down for a moment. A short press still does what it did."));
+        }
+
+        if (single) {
+            if (const auto code = SingleStep()) {
+                FinishCapture(*code);
+                return;
+            }
+            Muted(TLF("A single key or mouse button: {0} doesn't support combos, Shift / Ctrl / Alt, the gamepad, double tap or hold.",
+                { g_capture->owner }).c_str());
+            return;
         }
 
         // gamepad: the binding itself, or a button added to a key or mouse action

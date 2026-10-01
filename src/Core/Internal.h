@@ -23,6 +23,7 @@ namespace HA
     std::optional<std::pair<Device, std::uint32_t>> ParseSkseButton(std::string v);    // SKSE mouse / gamepad codes
     std::optional<std::uint32_t>                    VkToDik(std::uint32_t vk);
     std::optional<std::uint32_t>                    DikToVk(std::uint32_t dik);
+    bool                                            IsPhantomKey(std::uint32_t dik);  // F13-F24...: a switched-off mod key
     std::uint8_t                                    ModBitForDik(std::uint32_t dik);
     bool                                            UsesVirtualKeys(const std::string& owner);
     std::string                                     ModsText(std::uint8_t mods);  // "Ctrl+Shift+"
@@ -176,6 +177,23 @@ namespace HA
     void        SaveConfigAsync(std::string okStatus = {});  // in the background, then rescans
     void        EnsureActivePreset();
 
+    // ---------------------------------------------------------------- YAML hotkey files (YamlKeys.cpp)
+
+    struct YamlEntry
+    {
+        std::string path;   // parent mappings, "a.b"; empty at the top
+        std::string name;
+        std::string value;  // as written, comment and quotes included
+        std::size_t valueOffset = 0, valueLength = 0;  // byte range of the value in the file
+        int         line        = -1;
+    };
+    std::vector<YamlEntry>       ParseYamlScalars(const std::string& text);  // every "name: value" line
+    std::optional<std::uint32_t> YamlCode(long vk);                          // VK in the file -> input code
+    std::optional<long>          YamlValue(std::uint32_t code);              // input code -> VK, -1 = unset
+    bool                         IsYamlEditId(const std::string& id);        // a g_fileEdits entry written into its file
+    bool                         WriteYamlKey(const std::string& id, std::uint32_t code, std::string& err);
+    void                         SyncYamlFiles(const Overrides& before, const Overrides& after);  // files follow the change set
+
     // ---------------------------------------------------------------- translation (Translation.cpp)
 
     extern std::mutex  g_trLock;
@@ -200,7 +218,23 @@ namespace HA
 
     void RebuildComboTableLocked();  // caller holds g_ovLock
     void ClearActiveInputs();        // game thread
-    void PauseTriggers(bool paused);  // no new double taps / holds (a bind is being captured); any thread
+    void PauseTriggers(bool paused);  // a bind is being captured: no new double taps / holds, gamepad buttons reach no one; any thread
+
+    // ---------------------------------------------------------------- input block while capturing (InputBlock.cpp)
+
+    struct BlockedInput
+    {
+        Device        device;
+        std::uint32_t id;  // DIK or MouseButton
+        bool          down;
+    };
+    void                      StartInputBlock();  // keyboard, middle / side mouse buttons and wheel go to the capture only
+    void                      StopInputBlock();
+    bool                      InputBlockBusy();  // on, or keys it took still held: the input hook must look
+    bool                      BlockInputEvent(Device d, std::uint32_t id, bool down, bool up, bool canHold);  // input hook: true = hide it
+    std::vector<BlockedInput> TakeBlockedInput();  // presses and releases since the last call
+    bool                      BlockedHeld(Device d, std::uint32_t id);
+    bool                      AnyBlockedHeld();
 
     // Input state straight from Windows / XInput: works whichever UI has focus.
     struct PadState

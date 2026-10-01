@@ -85,6 +85,7 @@ namespace HA
             while (_i < _s.size() && !std::strchr(",]} \t\r\n", _s[_i])) ++_i;
             if (_i == start) throw std::runtime_error("bad json");
             n.t = JNode::T::Other;
+            n.s = _s.substr(start, _i - start);  // number, true, false, null as written
             return n;
         }
 

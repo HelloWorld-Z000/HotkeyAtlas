@@ -97,13 +97,23 @@ namespace HA
         // game thread: the control map goes back to the game's keys, then gets the preset's
         SKSE::GetTaskInterface()->AddTask([binds = std::move(binds), name = std::string(name)]() mutable {
             RestoreControls(std::nullopt);
+            Overrides filesBefore;  // keys written into YAML files follow the preset
             {
                 std::lock_guard l(g_ovLock);
+                filesBefore   = g_fileEdits;
                 g_overrides   = std::move(binds.controls);
                 g_fileEdits   = std::move(binds.files);
                 g_padControls = std::move(binds.padControls);
                 g_padMods     = std::move(binds.padMods);
                 RebuildComboTableLocked();
+            }
+            {
+                Overrides filesAfter;
+                {
+                    std::lock_guard l(g_ovLock);
+                    filesAfter = g_fileEdits;
+                }
+                SyncYamlFiles(filesBefore, filesAfter);
             }
             ClearActiveInputs();
             ApplyOverrides();

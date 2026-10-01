@@ -325,3 +325,13 @@ The bind works on a quick double press. A single press still does what it did, a
 The bind works when the button is held down for a moment. A short press still does what it did. = La asignación se activa al mantener el botón un momento. Una pulsación corta sigue haciendo lo mismo que antes.
 {0} (double tap) = {0} (doble pulsación)
 {0} (hold) = {0} (mantener)
+{0} takes a single key or mouse button only: no Shift / Ctrl / Alt, combos, gamepad, double tap or hold. = {0} solo admite una tecla o un botón del ratón: sin Mayús / Ctrl / Alt, combinaciones, mando, doble pulsación ni mantener.
+Rebind failed: {0} = No se pudo reasignar: {0}
+Saved into {0}'s own settings file ({1}), {0} picks it up at once. A single key or mouse button only. = Se guarda en el archivo de ajustes de {0} ({1}), {0} lo aplica al instante. Solo una tecla o un botón del ratón.
+this key can't be written there = esta tecla no se puede escribir ahí
+{0} not found in {1} = {0} no se encuentra en {1}
+Press the new key or mouse button for: {0} ({1}) = Pulsa la nueva tecla o botón del ratón para: {0} ({1})
+A single key or mouse button: {0} doesn't support combos, Shift / Ctrl / Alt, the gamepad, double tap or hold. = Una sola tecla o botón del ratón: {0} no admite combinaciones, Mayús / Ctrl / Alt, mando, doble pulsación ni mantener.
+{0} has no key for this yet. Set one in its own settings menu (MCM, dMenu); after that it can be changed here too. = {0} aún no tiene tecla para esto. Asigna una en su propio menú de ajustes (MCM, dMenu); después también podrá cambiarse aquí.
+ENB keys can't be changed here. Change them in ENB's own menu or in enblocal.ini ([INPUT]) in the game folder. = Las teclas de ENB no se pueden cambiar aquí. Cámbialas en el menú de ENB o en enblocal.ini ([INPUT]), en la carpeta del juego.
+{0} reads the keyboard itself, not through the game, so Hotkey Atlas can't move its keys. Change them in its own settings: {1}. = {0} lee el teclado por su cuenta, no a través del juego, así que Hotkey Atlas no puede mover sus teclas. Cámbialas en sus propios ajustes: {1}.

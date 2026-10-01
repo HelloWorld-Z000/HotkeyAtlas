@@ -22,6 +22,31 @@ namespace HA
     {
         if (newCombo == CurrentCode(binding)) return;
         if (!binding.editable && !(binding.overridden && newCombo == binding.defaultKey)) return;  // read-only: Reset only
+
+        // A YAML hotkey file (SkyrimNet): the mod reads the keyboard itself, past the input hook,
+        // so the new key goes into its file, which it reloads at once. One plain key or mouse button.
+        if (binding.kind == Kind::Yaml) {
+            if (!YamlValue(newCombo)) {
+                SetStatus(TLF("{0} takes a single key or mouse button only: no Shift / Ctrl / Alt, combos, gamepad, double tap or hold.",
+                    { binding.owner }));
+                return;
+            }
+            SKSE::GetTaskInterface()->AddTask([b = binding, newCombo] {
+                const auto  id = FileEditId(b);
+                std::string err;
+                if (!WriteYamlKey(id, newCombo, err)) {
+                    SetStatus(TLF("Rebind failed: {0}", { err }));
+                    return;
+                }
+                {
+                    std::lock_guard l(g_ovLock);
+                    RecordChange(g_fileEdits, id, b.defaultKey, newCombo);
+                }
+                SaveConfigAsync();
+            });
+            return;
+        }
+
         // a mouse button stays on the mouse, a gamepad button on the gamepad (a stick included);
         // a key may also go to the mouse (see NewMousePress). A gamepad button for a key or mouse
         // action is added next to it instead, see BindGamepad.
@@ -126,6 +151,11 @@ namespace HA
     void BindGamepad(const Binding& binding, std::uint32_t padCode)
     {
         if (padCode == binding.padKey || !binding.editable || CodeDevice(binding.defaultKey) == Device::Gamepad) return;
+        if (binding.kind == Kind::Yaml) {  // its mod reads the keyboard itself, see Rebind
+            SetStatus(TLF("{0} takes a single key or mouse button only: no Shift / Ctrl / Alt, combos, gamepad, double tap or hold.",
+                { binding.owner }));
+            return;
+        }
         if (padCode != kUnbound && CodeDevice(padCode) != Device::Gamepad) return;
         if (const auto h = HoldOf(padCode); h && CodeDevice(h) != Device::Gamepad) return;
         if (TriggerOf(padCode) != Trigger::Press && IsStick(BaseCode(padCode))) return;  // see Rebind
@@ -210,10 +240,13 @@ namespace HA
 
             // mod remaps only exist in our ini: dropping them is enough
             std::size_t mods = 0, pads = 0;
+            Overrides   filesBefore, filesAfter;  // keys written into YAML files go back there
             {
                 std::lock_guard l(g_ovLock);
                 std::erase_if(g_overrides, [&](const auto& e) { return mine(e.second); });
+                filesBefore = g_fileEdits;
                 mods = std::erase_if(g_fileEdits, [&](const auto& e) { return mine(e.second); });
+                filesAfter = g_fileEdits;
                 if (pad) {
                     pads = g_padControls.size() + g_padMods.size();
                     g_padControls.clear();
@@ -221,6 +254,7 @@ namespace HA
                 }
                 RebuildComboTableLocked();
             }
+            SyncYamlFiles(filesBefore, filesAfter);
             ClearActiveInputs();
             logger::info("reset to defaults ({}): {} Skyrim control(s), {} mod key(s), {} added gamepad button(s)",
                 !only ? "all" : *only == Device::Keyboard ? "keyboard" : *only == Device::Mouse ? "mouse" : "gamepad", controls, mods, pads);

@@ -43,7 +43,7 @@ namespace
 // Name and version come from xmake.lua (commonlibsse-ng.plugin rule).
 SKSEPluginLoad(const SKSE::LoadInterface* skse)
 {
-    SKSE::Init(skse);
+    SKSE::Init(skse, { .trampoline = true, .trampolineSize = HA::kInputHookTrampolineSize });
     SetupLog();
     HA::InstallInputHook();
     SKSE::GetMessagingInterface()->RegisterListener(OnMessage);

@@ -325,3 +325,13 @@ The bind works on a quick double press. A single press still does what it did, a
 The bind works when the button is held down for a moment. A short press still does what it did. = Die Belegung löst aus, wenn die Taste einen Moment gehalten wird. Kurzes Drücken tut weiterhin, was es vorher tat.
 {0} (double tap) = {0} (doppelt)
 {0} (hold) = {0} (halten)
+{0} takes a single key or mouse button only: no Shift / Ctrl / Alt, combos, gamepad, double tap or hold. = {0} nimmt nur eine einzelne Taste oder Maustaste: kein Shift / Strg / Alt, keine Kombinationen, kein Gamepad, kein Doppeltippen oder Halten.
+Rebind failed: {0} = Neubelegung fehlgeschlagen: {0}
+Saved into {0}'s own settings file ({1}), {0} picks it up at once. A single key or mouse button only. = Wird in die eigene Einstellungsdatei von {0} gespeichert ({1}), {0} übernimmt sie sofort. Nur eine einzelne Taste oder Maustaste.
+this key can't be written there = diese Taste kann dort nicht eingetragen werden
+{0} not found in {1} = {0} nicht gefunden in {1}
+Press the new key or mouse button for: {0} ({1}) = Neue Taste oder Maustaste drücken für: {0} ({1})
+A single key or mouse button: {0} doesn't support combos, Shift / Ctrl / Alt, the gamepad, double tap or hold. = Eine einzelne Taste oder Maustaste: {0} unterstützt keine Kombinationen, Shift / Strg / Alt, kein Gamepad, kein Doppeltippen oder Halten.
+{0} has no key for this yet. Set one in its own settings menu (MCM, dMenu); after that it can be changed here too. = {0} hat dafür noch keine Taste. Lege sie in seinem eigenen Einstellungsmenü fest (MCM, dMenu); danach lässt sie sich auch hier ändern.
+ENB keys can't be changed here. Change them in ENB's own menu or in enblocal.ini ([INPUT]) in the game folder. = ENB-Tasten lassen sich hier nicht ändern. Ändere sie im eigenen Menü von ENB oder in enblocal.ini ([INPUT]) im Spielordner.
+{0} reads the keyboard itself, not through the game, so Hotkey Atlas can't move its keys. Change them in its own settings: {1}. = {0} liest die Tastatur selbst, nicht über das Spiel, daher kann Hotkey Atlas seine Tasten nicht verschieben. Ändere sie in seinen eigenen Einstellungen: {1}.

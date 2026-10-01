@@ -325,3 +325,13 @@ The bind works on a quick double press. A single press still does what it did, a
 The bind works when the button is held down for a moment. A short press still does what it did. = Le raccourci agit quand le bouton est maintenu un instant. Un appui bref fait toujours ce qu'il faisait.
 {0} (double tap) = {0} (double appui)
 {0} (hold) = {0} (maintien)
+{0} takes a single key or mouse button only: no Shift / Ctrl / Alt, combos, gamepad, double tap or hold. = {0} n'accepte qu'une seule touche ou un bouton de souris : pas de Maj / Ctrl / Alt, de combinaisons, de manette, de double appui ni de maintien.
+Rebind failed: {0} = Échec de la réassignation : {0}
+Saved into {0}'s own settings file ({1}), {0} picks it up at once. A single key or mouse button only. = Enregistré dans le fichier de réglages de {0} ({1}), {0} le prend en compte aussitôt. Une seule touche ou un bouton de souris.
+this key can't be written there = cette touche ne peut pas y être écrite
+{0} not found in {1} = {0} introuvable dans {1}
+Press the new key or mouse button for: {0} ({1}) = Appuyez sur la nouvelle touche ou le bouton de souris pour : {0} ({1})
+A single key or mouse button: {0} doesn't support combos, Shift / Ctrl / Alt, the gamepad, double tap or hold. = Une seule touche ou un bouton de souris : {0} ne prend pas en charge les combinaisons, Maj / Ctrl / Alt, la manette, le double appui ni le maintien.
+{0} has no key for this yet. Set one in its own settings menu (MCM, dMenu); after that it can be changed here too. = {0} n'a pas encore de touche pour cela. Définissez-en une dans son propre menu de réglages (MCM, dMenu) ; ensuite, elle pourra aussi être changée ici.
+ENB keys can't be changed here. Change them in ENB's own menu or in enblocal.ini ([INPUT]) in the game folder. = Les touches d'ENB ne peuvent pas être changées ici. Modifiez-les dans le menu d'ENB ou dans enblocal.ini ([INPUT]), dans le dossier du jeu.
+{0} reads the keyboard itself, not through the game, so Hotkey Atlas can't move its keys. Change them in its own settings: {1}. = {0} lit le clavier lui-même, pas via le jeu, Hotkey Atlas ne peut donc pas déplacer ses touches. Modifiez-les dans ses propres réglages : {1}.

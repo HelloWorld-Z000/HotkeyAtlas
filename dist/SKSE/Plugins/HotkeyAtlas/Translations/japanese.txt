@@ -325,3 +325,13 @@ The bind works on a quick double press. A single press still does what it did, a
 The bind works when the button is held down for a moment. A short press still does what it did. = ボタンを少し押し続けると発動します。短く押すと今までどおりの動作になります。
 {0} (double tap) = {0}（ダブルタップ）
 {0} (hold) = {0}（長押し）
+{0} takes a single key or mouse button only: no Shift / Ctrl / Alt, combos, gamepad, double tap or hold. = {0} は単一のキーまたはマウスボタンのみ受け付けます。Shift / Ctrl / Alt、組み合わせ、ゲームパッド、ダブルタップ、長押しは使えません。
+Rebind failed: {0} = 割り当ての変更に失敗しました: {0}
+Saved into {0}'s own settings file ({1}), {0} picks it up at once. A single key or mouse button only. = {0} 自身の設定ファイル ({1}) に保存され、{0} はすぐに反映します。単一のキーまたはマウスボタンのみ。
+this key can't be written there = このキーはそこに書き込めません
+{0} not found in {1} = {1} に {0} が見つかりません
+Press the new key or mouse button for: {0} ({1}) = 新しいキーまたはマウスボタンを押してください: {0} ({1})
+A single key or mouse button: {0} doesn't support combos, Shift / Ctrl / Alt, the gamepad, double tap or hold. = 単一のキーまたはマウスボタン: {0} は組み合わせ、Shift / Ctrl / Alt、ゲームパッド、ダブルタップ、長押しに対応していません。
+{0} has no key for this yet. Set one in its own settings menu (MCM, dMenu); after that it can be changed here too. = {0} にはまだこの操作のキーがありません。まずその MOD 自身の設定メニュー (MCM、dMenu) で設定してください。その後はここでも変更できます。
+ENB keys can't be changed here. Change them in ENB's own menu or in enblocal.ini ([INPUT]) in the game folder. = ENB のキーはここでは変更できません。ENB 自身のメニュー、またはゲームフォルダーの enblocal.ini ([INPUT]) で変更してください。
+{0} reads the keyboard itself, not through the game, so Hotkey Atlas can't move its keys. Change them in its own settings: {1}. = {0} はゲームを通さずに自分でキーボードを読み取るため、Hotkey Atlas はキーを移動できません。その MOD 自身の設定で変更してください: {1}。

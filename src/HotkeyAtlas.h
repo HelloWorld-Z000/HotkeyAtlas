@@ -8,7 +8,8 @@ namespace HA
     {
         ControlMap,  // vanilla Skyrim controls, read live from RE::ControlMap
         Ini,         // a key value found in a mod's .ini file
-        Json         // a key value found in a mod's .json settings file
+        Json,        // a key value found in a mod's .json settings file
+        Yaml         // a key in a mod's YAML hotkey file (SkyrimNet): rebinding writes the file
     };
 
     // Modifier bits. A "combo" packs a key and its modifiers: key | mods << 8.
@@ -170,6 +171,7 @@ namespace HA
         std::string   contextHint;  // where the context is active (Skyrim controls only)
         Kind          kind     = Kind::ControlMap;
         bool          editable = false;
+        bool          ownInput = false;  // the mod reads the keyboard itself (not the game's input): read-only
 
         // handle for Kind::ControlMap
         int           ctx        = -1;
@@ -181,9 +183,9 @@ namespace HA
         // it, the key stays; kUnbound = none
         std::uint32_t padKey = kUnbound;
 
-        // handle for Kind::Ini / Kind::Json
+        // handle for Kind::Ini / Kind::Json / Kind::Yaml
         fs::path    file;
-        std::string iniKey;  // ini: setting name; json: full path, e.g. "Menu.ToggleKey"
+        std::string iniKey;  // ini / yaml: setting name; json: full path, e.g. "Menu.ToggleKey"
         int         line = -1;
 
         // modifier storage (Kind::Ini / Kind::Json)
@@ -256,7 +258,9 @@ namespace HA
     bool                     DeletePreset(std::string_view name, std::string& err);  // the active one: switches to another first
 
     void                         LoadConfig();
-    void                         InstallInputHook();
+    inline constexpr int         kInputHookLayers         = 8;                      // re-hooks on top of other mods (see EnsureInputHookOnTop)
+    inline constexpr std::size_t kInputHookTrampolineSize = 14 * kInputHookLayers;  // one 14-byte jump per layer
+    void                         InstallInputHook();  // needs kInputHookTrampolineSize from SKSE::Init
     void                         EnsureInputHookOnTop();
     bool                         InputHookInstalled();
     void                         ApplyOverridesLater();

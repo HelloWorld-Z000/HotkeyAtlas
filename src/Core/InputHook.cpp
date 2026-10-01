@@ -115,14 +115,15 @@ namespace HA
                 g_remaps.push_back({ ov.key, ov.original });
         };
         // an unbound key has no new combo: nothing to translate, only the old one to hide
+        // (keys written into a mod's YAML file need no translating: the file has them)
         for (const auto& [id, ov] : g_fileEdits)
-            if (ov.key != ov.original && ov.key != kUnbound) addRemap(ov);
+            if (ov.key != ov.original && ov.key != kUnbound && !IsYamlEditId(id)) addRemap(ov);
         // an added gamepad button shows the mod its own key; the key itself keeps working
         for (const auto& [id, ov] : g_padMods) addRemap(ov);
         g_stickUsed = !g_stickBinds.empty() || std::ranges::any_of(g_remaps, [](const Remap& r) { return IsStick(r.from); });
         // the old combo stops working for the mod, unless it is also some remap's new combo
         for (const auto& [id, ov] : g_fileEdits)
-            if (ov.key != ov.original && std::ranges::none_of(g_remaps, [&](const Remap& o) { return o.from == ov.original; }))
+            if (ov.key != ov.original && !IsYamlEditId(id) && std::ranges::none_of(g_remaps, [&](const Remap& o) { return o.from == ov.original; }))
                 g_blocked.push_back(ov.original);
     }
 
@@ -192,12 +193,6 @@ namespace HA
             }
         }
 
-        // Rewrites keyboard button events before any sink sees them:
-        //  - vanilla combos get the user event of their control;
-        //  - a remapped mod key is shown to mods as the key in their own config (idCode),
-        //    with fake modifier presses when that key needs different modifiers;
-        //  - the mod's original key is hidden (idCode 0xFF), Skyrim's own action on it stays.
-        // Returns the (possibly new) head of the list; `restore` undoes the relinking.
         // Keys whose "down" is sent one frame late, after the synthetic modifiers (see present()).
         std::vector<std::uint32_t> g_pendingDown;
 
@@ -371,11 +366,28 @@ namespace HA
 
     namespace
     {
+        bool IsKeyCombo(std::uint32_t to) { return to != kUnbound && to != kHiddenKey && CodeDevice(to) == Device::Keyboard; }
+
+        // Whether mods are being shown a key of theirs, with its modifiers, in place of what is held.
+        bool PresentingCombo()
+        {
+            return !g_pendingDown.empty() || !g_pendingUp.empty() ||
+                   std::ranges::any_of(g_activeRemaps, [](const auto& r) { return IsKeyCombo(r.second); }) ||
+                   std::ranges::any_of(g_stickPress, [](const StickPress& s) { return s.down && IsKeyCombo(s.remapTo); }) ||
+                   std::ranges::any_of(g_presses, [](const TriggerPress& p) { return p.stage == TriggerPress::Stage::Fired && IsKeyCombo(p.fired.to); });
+        }
+
+        // Rewrites keyboard button events before any sink sees them:
+        //  - vanilla combos get the user event of their control;
+        //  - a remapped mod key is shown to mods as the key in their own config (idCode),
+        //    with fake modifier presses when that key needs different modifiers;
+        //  - the mod's original key is hidden (idCode 0xFF), Skyrim's own action on it stays.
+        // Returns the (possibly new) head of the list; `restore` undoes the relinking.
         RE::InputEvent* ProcessInput(RE::InputEvent* head, std::vector<std::pair<RE::InputEvent*, RE::InputEvent*>>& restore)
         {
             if (g_combos.empty() && g_activeCombos.empty() && g_remaps.empty() && g_activeRemaps.empty() && g_pendingDown.empty() &&
                 g_buttonBinds.empty() && g_activeButtons.empty() && g_pendingUp.empty() && !g_stickUsed && !g_stickPress[0].down &&
-                !g_stickPress[1].down && g_triggers.empty() && g_presses.empty() && g_replayUps.empty())
+                !g_stickPress[1].down && g_triggers.empty() && g_presses.empty() && g_replayUps.empty() && !g_triggersPaused && !InputBlockBusy())
                 return head;
             g_eventPool.Reset();
 
@@ -618,6 +630,26 @@ namespace HA
 
             for (auto* e = head; e; e = e->next) {
                 restore.emplace_back(e, e->next);
+                // A bind is being captured: what is pressed goes to the capture and reaches no one
+                // else, so the key picked doesn't also open some mod's menu (see InputBlock).
+                // Keyboard and the middle / side mouse buttons and wheel are handed over; gamepad
+                // buttons only hidden (the capture reads XInput); left / right click the menu.
+                if (e->GetEventType() == RE::INPUT_EVENT_TYPE::kButton) {
+                    auto*      btn = e->AsButtonEvent();
+                    const auto dev = e->GetDevice();
+                    const auto id  = btn->GetIDCode();
+                    if (dev == RE::INPUT_DEVICE::kGamepad && g_triggersPaused) {
+                        hideButton(btn);
+                        continue;
+                    }
+                    const bool kb    = dev == RE::INPUT_DEVICE::kKeyboard;
+                    const bool mouse = dev == RE::INPUT_DEVICE::kMouse && id >= kMouseMiddle && id != kMouseMove;
+                    if ((kb || mouse) && InputBlockBusy() &&
+                        BlockInputEvent(kb ? Device::Keyboard : Device::Mouse, id, btn->IsDown(), !btn->IsPressed(), !IsWheel(MakeCode(Device::Mouse, id)) || kb)) {
+                        hideButton(btn);
+                        continue;
+                    }
+                }
                 if (!takeTrigger(e)) input.push_back(e);
             }
 
@@ -690,7 +722,8 @@ namespace HA
                         if (!IsWheel(code)) g_activeRemaps[code] = kHiddenKey;
                     }
                     continue;
-                }                if (e->GetEventType() != RE::INPUT_EVENT_TYPE::kButton || e->GetDevice() != RE::INPUT_DEVICE::kKeyboard) {
+                }
+                if (e->GetEventType() != RE::INPUT_EVENT_TYPE::kButton || e->GetDevice() != RE::INPUT_DEVICE::kKeyboard) {
                     seq.push_back(e);
                     continue;
                 }
@@ -732,6 +765,15 @@ namespace HA
                     } else {
                         present(combo);
                     }
+                    continue;
+                }
+                // While mods are shown a combo, a physical modifier stays hidden from them: Skyrim
+                // repeats a held key's event every frame, and each repeat would undo the faked
+                // modifiers (OAR toggles its menu only on the exact Ctrl / Shift / Alt state).
+                // Its Skyrim action stays; on release the modifiers go back to the real ones.
+                if (ModBitForDik(key) && PresentingCombo()) {
+                    btn->SetIDCode(kHiddenKey);
+                    seq.push_back(e);
                     continue;
                 }
                 if (const auto it = g_activeCombos.find(key); it != g_activeCombos.end()) {
@@ -805,11 +847,25 @@ namespace HA
         std::uintptr_t    g_hookSite   = 0;
         std::uintptr_t    g_ourTarget  = 0;  // call target we wrote most recently
         int               g_hookLayers = 0;
-        constexpr int     kMaxLayers   = 4;
 
         std::uintptr_t CallTarget(std::uintptr_t site)
         {
             return site + 5 + *reinterpret_cast<const std::int32_t*>(site + 1);
+        }
+
+        // The DLL a call target leads to, through an SKSE trampoline jump (jmp [rip+disp]).
+        std::string TargetOwner(std::uintptr_t target)
+        {
+            const auto* code = reinterpret_cast<const std::uint8_t*>(target);
+            if (code[0] == 0xFF && code[1] == 0x25)
+                target = *reinterpret_cast<const std::uintptr_t*>(target + 6 + *reinterpret_cast<const std::int32_t*>(target + 2));
+            HMODULE mod = nullptr;
+            wchar_t name[MAX_PATH]{};
+            if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                    reinterpret_cast<LPCWSTR>(target), &mod) ||
+                !GetModuleFileNameW(mod, name, MAX_PATH))
+                return "unknown";
+            return Utf8(fs::path(name).filename());
         }
 
         template <int N>
@@ -825,6 +881,10 @@ namespace HA
             case 1: WriteLayer<1>(); break;
             case 2: WriteLayer<2>(); break;
             case 3: WriteLayer<3>(); break;
+            case 4: WriteLayer<4>(); break;
+            case 5: WriteLayer<5>(); break;
+            case 6: WriteLayer<6>(); break;
+            case 7: WriteLayer<7>(); break;
             default: return false;
             }
             ++g_hookLayers;
@@ -846,7 +906,6 @@ namespace HA
             logger::error("input hook: unexpected code at {:X}, combos and mod remaps are disabled", site);
             return;
         }
-        SKSE::AllocTrampoline(14 * kMaxLayers);  // room for the re-hooks below
         g_hookSite = site;
         AddHookLayer();
         g_hookInstalled = true;
@@ -857,11 +916,14 @@ namespace HA
     // we translate it: wrap it once more so we are outermost again.
     void EnsureInputHookOnTop()
     {
-        if (!g_hookInstalled || CallTarget(g_hookSite) == g_ourTarget) return;
+        if (!g_hookInstalled) return;
+        const auto target = CallTarget(g_hookSite);
+        if (target == g_ourTarget) return;
+        const auto owner = TargetOwner(target);
         if (AddHookLayer())
-            logger::info("input hook: another mod hooked input after us, re-hooked on top (layer {})", g_hookLayers);
+            logger::info("input hook: {} hooked input after us, re-hooked on top (layer {})", owner, g_hookLayers);
         else
-            logger::warn("input hook: still not first after {} layers, remaps may not reach some mods", kMaxLayers);
+            logger::warn("input hook: {} hooked input after us, still not first after {} layers, remaps may not reach it", owner, kInputHookLayers);
     }
 
     // hook state of inputs held under the old tables. Game thread.

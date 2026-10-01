@@ -3,6 +3,8 @@
 #include "Internal.h"
 #include "Json.h"
 
+#include <Psapi.h>
+
 namespace HA
 {
     namespace
@@ -37,6 +39,14 @@ namespace HA
             if (!rec) return;
             const auto inFile = CurrentCode(b);
 
+            if (b.kind == Kind::Yaml) {
+                // we wrote the key into the file: it is there unless changed since (SkyrimNet's
+                // own dashboard), then the record no longer applies
+                if (rec->key != inFile) return;
+                b.overridden = true;
+                b.defaultKey = rec->original;
+                return;
+            }
             if (b.device == Device::Keyboard && rec->key == inFile && rec->original != inFile) {
                 // written into the mod's file by an older Hotkey Atlas: put the file back
                 std::string err;
@@ -85,6 +95,114 @@ namespace HA
             // SKSE/Plugins/<Mod>/something.ini -> <Mod>;  SKSE/Plugins/<Mod>.ini and MCM/Settings/<Mod>.ini -> stem
             if (parts.size() > 3 && Lower(parts[0]) == "skse" && Lower(parts[1]) == "plugins") return parts[2];
             return file.stem().string();
+        }
+
+        // ---------------------------------------------------------------- which mods are running
+
+        // "OpenAnimationReplacer_ImGui" -> "openanimationreplacerimgui": names compared loosely
+        std::string Norm(std::string_view s)
+        {
+            std::string out;
+            for (const char c : s)
+                if (std::isalnum(static_cast<unsigned char>(c))) out += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            return out;
+        }
+
+        // The SKSE plugins (dll) and game plugins (esp / esm / esl) actually loaded, by Norm()
+        // name. A mod switched off in the mod manager can leave its config visible (kept in
+        // another MO2 folder or in Overwrite); its hotkeys do nothing and are left out.
+        struct LoadedMods
+        {
+            std::vector<std::string> dlls, plugins;
+            std::vector<fs::path>    dllPaths;      // same order as dlls
+            std::set<std::string>    pluginsExact;  // lower case, with extension
+
+            bool Known() const { return !dlls.empty() && !plugins.empty(); }
+
+            // Whether one of `names` (a config's folder or file name) is a loaded dll or plugin: the
+            // same name, or starting with it ("OpenAnimationReplacer_ImGui.ini" belongs to
+            // OpenAnimationReplacer.dll). Not the other way round: OpenAnimationReplacer-RaySense.dll
+            // being loaded says nothing about OpenAnimationReplacer.ini.
+            bool AnyLoaded(std::initializer_list<std::string_view> names) const
+            {
+                for (const auto raw : names) {
+                    const auto n = Norm(raw);
+                    if (n.size() < 3) continue;
+                    for (const auto* list : { &dlls, &plugins })
+                        for (const auto& l : *list)
+                            if (n == l || (l.size() >= 5 && n.starts_with(l))) return true;
+                }
+                return false;
+            }
+
+            // The loaded dll a config belongs to (see AnyLoaded), if any.
+            std::optional<fs::path> DllFor(std::initializer_list<std::string_view> names) const
+            {
+                for (const auto raw : names) {
+                    const auto n = Norm(raw);
+                    if (n.size() < 3) continue;
+                    for (std::size_t i = 0; i < dlls.size(); ++i)
+                        if (n == dlls[i] || (dlls[i].size() >= 5 && n.starts_with(dlls[i]))) return dllPaths[i];
+                }
+                return std::nullopt;
+            }
+
+            bool PluginLoaded(const std::string& stem) const
+            {
+                const auto l = Lower(stem);
+                return pluginsExact.contains(l + ".esp") || pluginsExact.contains(l + ".esm") || pluginsExact.contains(l + ".esl");
+            }
+        };
+
+        // Whether a dll asks Windows for key states (GetAsyncKeyState / GetKeyState). Alone that
+        // says little (many mods check a modifier that way and still read the game's input), so
+        // it only counts for keys their config writes as Windows key names (VK_F2), see markOwnInput.
+        bool PollsWindowsKeys(const fs::path& dll)
+        {
+            static std::mutex                       lock;
+            static std::map<fs::path, bool>         cache;
+            std::lock_guard                         l(lock);
+            if (const auto it = cache.find(dll); it != cache.end()) return it->second;
+            bool          result = false;
+            std::ifstream in(dll, std::ios::binary);
+            if (in) {
+                const std::string bytes(std::istreambuf_iterator<char>(in), {});
+                result = bytes.find("GetAsyncKeyState") != npos || bytes.find("GetKeyState") != npos;
+            }
+            cache[dll] = result;
+            return result;
+        }
+
+        LoadedMods FindLoadedMods()
+        {
+            LoadedMods out;
+            HMODULE    mods[1024];
+            DWORD      needed = 0;
+            if (K32EnumProcessModules(GetCurrentProcess(), mods, sizeof mods, &needed)) {
+                const auto count = (std::min)(static_cast<std::size_t>(needed / sizeof(HMODULE)), std::size(mods));
+                for (std::size_t i = 0; i < count; ++i) {
+                    wchar_t path[MAX_PATH * 2];
+                    const auto len = GetModuleFileNameW(mods[i], path, static_cast<DWORD>(std::size(path)));
+                    if (!len) continue;
+                    const fs::path p(std::wstring_view(path, len));
+                    // SKSE plugins only (under MO2 the real path is mods\<mod>\SKSE\Plugins\x.dll)
+                    if (Lower(Utf8(p.parent_path())).find("skse\\plugins") == npos) continue;
+                    out.dlls.push_back(Norm(Utf8(p.stem())));
+                    out.dllPaths.push_back(p);
+                }
+            }
+            if (auto* dh = RE::TESDataHandler::GetSingleton()) {
+                for (const auto* file : dh->files) {
+                    if (!file || file->GetCompileIndex() == 0xFF) continue;  // in Data but not active
+                    const auto name = std::string(file->GetFilename());
+                    out.pluginsExact.insert(Lower(name));
+                    // the game's own masters name no mod ("Skyrim" would claim SkyrimNet's config)
+                    const auto stem = Norm(fs::path(name).stem().string());
+                    if (stem != "skyrim" && stem != "update" && stem != "dawnguard" && stem != "hearthfires" && stem != "dragonborn")
+                        out.plugins.push_back(stem);
+                }
+            }
+            return out;
         }
 
         struct IniEntry
@@ -220,7 +338,25 @@ namespace HA
                     continue;
                 }
                 const auto val = ParseKey(e.value);
-                if (!val) continue;
+                if (!val) {
+                    // A keymap the MCM declares but nobody set (-1): listed, so the action is known.
+                    // Read-only: with no key of its own the mod listens to nothing we could remap.
+                    if (mcm && mcm->labels.contains(McmKeyId(e.section, e.name)) && (e.value.empty() || e.value == "-1" || e.value == "0")) {
+                        Binding u;
+                        u.key        = kUnbound;
+                        u.action     = label;
+                        u.owner      = owner;
+                        u.context    = e.section;
+                        u.origin     = origin;
+                        u.kind       = Kind::Ini;
+                        u.file       = file;
+                        u.iniKey     = e.name;
+                        u.line       = e.line;
+                        u.defaultKey = kUnbound;
+                        found.emplace_back(i, std::move(u));
+                    }
+                    continue;
+                }
 
                 Binding b;
                 b.key      = *val;
@@ -504,6 +640,54 @@ namespace HA
             return FileResult::Read;
         }
 
+        // A YAML hotkey file (SkyrimNet's Hotkey.yaml): every number in it is a key, as a Windows
+        // VK code, -1 = unset. Unset keys are listed too: they can be given one here.
+        FileResult ScanYaml(const fs::path& file, const fs::path& dataDir, std::vector<Binding>& out)
+        {
+            std::error_code ec;
+            const auto      size = fs::file_size(file, ec);
+            if (ec) return FileResult::Unreadable;
+            if (size > kMaxFileSize) return FileResult::TooBig;
+            std::ifstream in(file, std::ios::binary);
+            if (!in) return FileResult::Unreadable;
+            const std::string text(std::istreambuf_iterator<char>(in), {});
+
+            const auto owner  = OwnerFromPath(file, dataDir);
+            const auto origin = RelToData(file, dataDir).generic_string();
+            for (const auto& e : ParseYamlScalars(text)) {
+                auto v = e.value;
+                if (v.size() >= 2 && (v.front() == '"' || v.front() == '\'') && v.back() == v.front()) v = v.substr(1, v.size() - 2);
+                long n = 0;
+                const auto [p, err] = std::from_chars(v.data(), v.data() + v.size(), n);
+                if (err != std::errc{} || p != v.data() + v.size()) continue;  // not a key code
+                const auto code = YamlCode(n);
+                if (!code) continue;
+
+                Binding b;
+                if (*code == kUnbound) {
+                    b.key = kUnbound;
+                } else {
+                    b.device = CodeDevice(*code);
+                    b.key    = b.device == Device::Keyboard ? *code : CodeId(*code);
+                }
+                b.action = Humanize(e.name);  // "recordSpeech" -> "Record Speech"
+                if (!b.action.empty()) b.action[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(b.action[0])));
+                b.owner      = owner;
+                b.context    = e.path;
+                b.origin     = origin;
+                b.kind       = Kind::Yaml;
+                b.editable   = true;
+                b.file       = file;
+                b.iniKey     = e.name;
+                b.line       = e.line;
+                b.virtualKey = true;
+                b.defaultKey = CurrentCode(b);
+                MarkFileEdit(b);
+                out.push_back(std::move(b));
+            }
+            return FileResult::Read;
+        }
+
         // Only settings-like json files: data files (translations, form lists...) are noise.
         bool IsSettingsJson(const fs::path& p)
         {
@@ -556,6 +740,26 @@ namespace HA
             for (const auto& v : n.arr) CollectKeymaps(v, tr, out);
         }
 
+        // A "keymap" entry of a dMenu settings json.
+        struct DMenuKey
+        {
+            std::string section, name, label, def;  // def: default SKSE key code, as written
+        };
+
+        void CollectDMenuKeymaps(const JNode& n, std::vector<DMenuKey>& out)
+        {
+            if (n.t == JNode::T::Obj && n.Str("type") == "keymap") {
+                if (const auto* ini = n.Get("ini")) {
+                    DMenuKey k{ ini->Str("section"), ini->Str("id") };
+                    if (const auto* text = n.Get("text")) k.label = text->Str("name");
+                    if (const auto* d = n.Get("default"); d && d->t == JNode::T::Other) k.def = d->s;
+                    if (!k.name.empty()) out.push_back(std::move(k));
+                }
+            }
+            for (const auto& [k, v] : n.obj) CollectDMenuKeymaps(v, out);
+            for (const auto& v : n.arr) CollectDMenuKeymaps(v, out);
+        }
+
         // What a scan looked at, for the log.
         struct ScanStats
         {
@@ -585,7 +789,7 @@ namespace HA
         // MCM Helper mods: MCM/Config/<Mod>/config.json declares the keymaps, the values are in
         // MCM/Settings/<Mod>.ini (only once the user changed something) or else in the
         // defaults, MCM/Config/<Mod>/settings.ini. Returns the MCM/Settings files handled here.
-        std::set<std::string> ScanMcmHelper(const fs::path& data, std::vector<Binding>& out, ScanStats& stats)
+        std::set<std::string> ScanMcmHelper(const fs::path& data, std::vector<Binding>& out, ScanStats& stats, const LoadedMods& loaded)
         {
             std::set<std::string> handled;
             std::error_code       ec;
@@ -605,6 +809,13 @@ namespace HA
                     stats.Add(keys.labels.size(), false);
                     if (keys.labels.empty()) continue;  // its MCM/Settings ini, if any, is still read by the generic scan
 
+                    // MCM Helper names the folder after the mod's plugin: no plugin loaded, no menu
+                    if (loaded.Known() && !loaded.PluginLoaded(mod) && !loaded.AnyLoaded({ mod })) {
+                        logger::info("scan: {} is not loaded, its MCM hotkeys are left out", mod);
+                        handled.insert(Lower(mod + ".ini"));  // its MCM/Settings file too
+                        continue;
+                    }
+
                     std::set<std::string> seen;
                     keys.seen       = &seen;
                     const auto user = data / "MCM/Settings" / (mod + ".ini");
@@ -622,11 +833,217 @@ namespace HA
             return handled;
         }
 
+        // dMenu mod settings: SKSE/Plugins/dmenu/customSettings/<Mod>.json declares them; its
+        // "keymap" entries are keys whatever their name (Wheeler: toggleWheel, nextItem...), as
+        // SKSE key codes in the ini the json names (by default customSettings/ini/<Mod>.ini), or
+        // the json's default while nobody changed them. Returns the ini files handled here
+        // (lower case, relative to Data/), which the generic scan then skips.
+        std::set<std::string> ScanDMenu(const fs::path& data, std::vector<Binding>& out, ScanStats& stats, const LoadedMods& loaded)
+        {
+            std::set<std::string> handled;
+            const auto            dir = data / "SKSE/Plugins/dmenu/customSettings";
+            std::error_code       ec;
+            for (fs::directory_iterator it(dir, fs::directory_options::skip_permission_denied, ec), end; !ec && it != end; it.increment(ec)) {
+                std::error_code e2;
+                if (!it->is_regular_file(e2) || Lower(it->path().extension().string()) != ".json") continue;
+                const auto mod = Utf8(it->path().stem());
+                try {
+                    std::ifstream in(it->path(), std::ios::binary);
+                    if (!in) continue;
+                    const std::string json(std::istreambuf_iterator<char>(in), {});
+                    const auto        root = JsonDom(json).Parse();
+
+                    std::vector<DMenuKey> keys;
+                    if (const auto* list = root.Get("data")) CollectDMenuKeymaps(*list, keys);
+                    stats.Add(keys.size(), false);
+                    if (keys.empty()) continue;
+
+                    // the ini path is relative to the game folder ("Data\SKSE\Plugins\wheeler\Controls.ini")
+                    const auto iniText = root.Str("ini");
+                    const auto ini     = iniText.empty() ? dir / "ini" / (mod + ".ini") : fs::path(std::u8string(iniText.begin(), iniText.end()));
+                    handled.insert(Lower(RelToData(ini, data).generic_string()));
+                    if (loaded.Known() && !loaded.AnyLoaded({ mod })) {
+                        logger::info("scan: {} is not loaded, its dMenu hotkeys are left out", mod);
+                        continue;
+                    }
+
+                    McmKeymaps            map;
+                    std::set<std::string> seen;
+                    map.owner = mod;
+                    map.seen  = &seen;
+                    for (const auto& k : keys) map.labels[McmKeyId(k.section, k.name)] = k.label;
+                    if (fs::exists(ini, e2)) ScanCounted(ini, data, out, stats, false, &map);
+
+                    // never changed in dMenu, so not in the ini yet: the json's default key
+                    for (const auto& k : keys) {
+                        if (seen.contains(McmKeyId(k.section, k.name))) continue;
+                        Binding b;
+                        if (const auto button = ParseSkseButton(k.def)) {
+                            b.device = button->first;
+                            b.key    = button->second;
+                        } else if (const auto key = ParseKey(k.def)) {
+                            b.key = *key;
+                        } else {
+                            b.key = kUnbound;  // 0 = unmapped: listed read-only, like MCM Helper's
+                        }
+                        b.action     = k.label.empty() ? Humanize(k.name) : k.label;
+                        b.owner      = mod;
+                        b.context    = k.section;
+                        b.origin     = RelToData(ini, data).generic_string();
+                        b.kind       = Kind::Ini;
+                        b.editable   = b.key != kUnbound;
+                        b.file       = ini;
+                        b.iniKey     = k.name;
+                        b.defaultKey = CurrentCode(b);
+                        MarkFileEdit(b);
+                        out.push_back(std::move(b));
+                    }
+                } catch (...) {
+                    stats.Add(0, true);  // broken json
+                }
+            }
+            return handled;
+        }
+
+        // ENB: enblocal.ini in the game folder, [INPUT], Windows VK codes. Most of its keys work
+        // together with KeyCombination (Shift: Shift+Enter opens the editor); the FPS display,
+        // the screenshot and the reload key work alone (enbdev.com/doc_skyrim_input_en.htm). ENB reads the keyboard itself, past the game's input,
+        // so its keys can't be remapped: listed read-only.
+        void ScanEnb(std::vector<Binding>& out, ScanStats& stats)
+        {
+            const fs::path  file = "enblocal.ini";  // cwd: the game folder
+            std::error_code ec;
+            if (!fs::exists(file, ec)) return;
+            std::ifstream in(file, std::ios::binary);
+            if (!in) return;
+
+            std::map<std::string, std::string> keys;  // lower-case name -> value, [INPUT] only
+            std::map<std::string, std::string> names;  // lower-case name -> name as written
+            std::map<std::string, int>         lines;
+            std::string                        section, line;
+            for (int n = 0; std::getline(in, line); ++n) {
+                auto t = Trim(line);
+                if (t.empty() || t[0] == ';' || t[0] == '#') continue;
+                if (t.front() == '[') {
+                    section = Lower(t.substr(1, t.find(']') - 1));
+                    continue;
+                }
+                const auto eq = t.find('=');
+                if (section != "input" || eq == npos) continue;
+                auto value = t.substr(eq + 1);
+                if (const auto p = value.find_first_of(";#"); p != npos) value.erase(p);
+                const auto name = Trim(t.substr(0, eq));
+                keys[Lower(name)]  = Trim(value);
+                names[Lower(name)] = name;
+                lines[Lower(name)] = n;
+            }
+
+            // the combination key: Shift / Ctrl / Alt as a modifier, any other key as a held key
+            std::uint8_t  mods = 0;
+            std::uint32_t hold = 0;
+            if (const auto it = keys.find("keycombination"); it != keys.end())
+                if (const auto vk = ParseUInt(it->second); vk && *vk) {
+                    if (*vk == VK_SHIFT || *vk == VK_LSHIFT || *vk == VK_RSHIFT) mods = kShift;
+                    else if (*vk == VK_CONTROL || *vk == VK_LCONTROL || *vk == VK_RCONTROL) mods = kCtrl;
+                    else if (*vk == VK_MENU || *vk == VK_LMENU || *vk == VK_RMENU) mods = kAlt;
+                    else if (const auto dik = VkToDik(*vk)) hold = *dik;
+                }
+
+            static constexpr struct
+            {
+                const char* name;   // lower case
+                const char* label;
+                bool        combo;  // pressed with KeyCombination
+            } kEnbKeys[] = {
+                { "keyuseeffect", "Toggle ENB", true }, { "keyeditor", "Open ENB editor", true }, { "keyfpslimit", "Toggle FPS limiter", true },
+                { "keyshowfps", "Show FPS", false }, { "keyscreenshot", "Screenshot", false }, { "keyreadconfig", "Reload ENB settings", false },
+                { "keyfreevram", "Free video memory", true }, { "keybruteforce", "Brute force mode", true }, { "keydof", "Depth of field focus", true },
+            };
+            std::size_t found = 0;
+            for (const auto& k : kEnbKeys) {
+                const auto it = keys.find(k.name);
+                if (it == keys.end()) continue;
+                const auto vk  = ParseUInt(it->second);
+                const auto dik = vk && *vk ? VkToDik(*vk) : std::nullopt;
+                Binding    b;
+                if (!dik) {
+                    b.key = kUnbound;
+                } else {
+                    b.key  = *dik;
+                    b.mods = k.combo ? mods : 0;
+                    b.hold = k.combo ? hold : 0;
+                }
+                b.action     = k.label;
+                b.owner      = "ENB";
+                b.context    = "INPUT";
+                b.origin     = "enblocal.ini";
+                b.kind       = Kind::Ini;
+                b.editable   = false;
+                b.file       = file;
+                b.iniKey     = names[k.name];
+                b.line       = lines[k.name];
+                b.defaultKey = CurrentCode(b);
+                out.push_back(std::move(b));
+                ++found;
+            }
+            stats.Add(found, false);
+        }
+
         std::vector<Binding> ScanFiles(ScanStats& stats)
         {
             std::vector<Binding> out;
-            const fs::path       data = "Data";  // process cwd is the game folder; MO2's VFS hooks these calls
-            const auto           mcmHandled = ScanMcmHelper(data, out, stats);
+            const fs::path       data       = "Data";  // process cwd is the game folder; MO2's VFS hooks these calls
+            const auto           loaded     = FindLoadedMods();
+            const auto           mcmHandled = ScanMcmHelper(data, out, stats, loaded);
+            const auto           dmenuIni   = ScanDMenu(data, out, stats, loaded);
+            ScanEnb(out, stats);
+            if (!loaded.Known())
+                logger::warn("scan: could not list the loaded mods, configs of switched-off mods may show");
+            else
+                logger::info("scan: {} SKSE plugins and {} game plugins loaded", loaded.dlls.size(), loaded.plugins.size());
+
+            // A config whose folder / file name matches no loaded dll or plugin belongs to a mod
+            // that is switched off: SKSE/Plugins/<Mod>/... or SKSE/Plugins/<Mod>.ini, MCM/Settings/<Mod>.ini
+            const auto modOff = [&](const fs::path& file, std::string_view sub) {
+                if (!loaded.Known()) return false;
+                const auto rel = file.lexically_relative(data / sub);
+                if (rel.empty() || *rel.begin() == "..") return false;
+                const auto stem = Utf8(file.stem());
+                const auto top  = Utf8(*rel.begin());
+                const bool off  = std::distance(rel.begin(), rel.end()) > 1 ? !loaded.AnyLoaded({ top, stem }) : !loaded.AnyLoaded({ stem }) && !loaded.PluginLoaded(stem);
+                if (off) logger::info("scan: {} belongs to no loaded mod, left out", RelToData(file, data).generic_string());
+                return off;
+            };
+
+            // A mod that reads the keyboard itself: its keys are listed read-only (the input hook
+            // only changes what the game's input events say, which it never looks at). Told by
+            // two signs together: the key written as a Windows key name (VK_F2: Windows' codes,
+            // the game has its own) and its dll asking Windows for key states.
+            const auto markOwnInput = [&](const fs::path& file, std::string_view sub, std::vector<Binding>& binds) {
+                const auto rel = file.lexically_relative(data / sub);
+                if (rel.empty() || *rel.begin() == "..") return;
+                std::vector<std::string> lines;
+                {
+                    std::ifstream in(file, std::ios::binary);
+                    for (std::string line; std::getline(in, line);) lines.push_back(std::move(line));
+                }
+                const auto vkName = [&](const Binding& b) {
+                    if (b.kind != Kind::Ini || b.line < 0 || b.line >= static_cast<int>(lines.size())) return false;
+                    const auto& line = lines[b.line];
+                    const auto  eq   = line.find('=');
+                    return eq != npos && Lower(Trim(line.substr(eq + 1))).starts_with("vk_");
+                };
+                if (std::ranges::none_of(binds, vkName)) return;
+                const auto dll = loaded.DllFor({ Utf8(*rel.begin()), Utf8(file.stem()) });
+                if (!dll || !PollsWindowsKeys(*dll)) return;
+                logger::info("scan: {} reads the keyboard itself, its keys in {} are read-only", Utf8(dll->filename()), RelToData(file, data).generic_string());
+                for (auto& b : binds)
+                    if (vkName(b)) {
+                        b.ownInput = true;
+                        b.editable = false;
+                    }
+            };
+
             for (const auto* sub : { "SKSE/Plugins", "MCM/Settings" }) {
                 std::error_code ec;
                 for (fs::recursive_directory_iterator it(data / sub, fs::directory_options::skip_permission_denied, ec), end;
@@ -640,16 +1057,40 @@ namespace HA
                     } catch (...) {
                         continue;  // name not representable
                     }
+                    if (ext == ".yaml" || ext == ".yml") {
+                        // only hotkey files: a mod's other YAML configs (SkyrimNet has dozens) hold no keys
+                        if (name.find("hotkey") == npos && name.find("keybind") == npos) continue;
+                        std::vector<Binding> got;
+                        FileResult           r;
+                        try {
+                            r = ScanYaml(it->path(), data, got);
+                        } catch (...) {
+                            r = FileResult::Unreadable;
+                        }
+                        stats.Add(got.size(), r != FileResult::Read);
+                        if (!got.empty() && !modOff(it->path(), sub))
+                            out.insert(out.end(), std::make_move_iterator(got.begin()), std::make_move_iterator(got.end()));
+                        continue;
+                    }
                     if (ext != ".ini" && ext != ".json") continue;  // dlls, logs, textures...
                     if (std::string_view(sub) == "MCM/Settings" && mcmHandled.contains(name)) continue;  // read by ScanMcmHelper
-
+                    if (dmenuIni.contains(Lower(RelToData(it->path(), data).generic_string()))) continue;  // read by ScanDMenu
                     // skipped: Hotkey Atlas's own files, json whose name is not a settings name
-                    if (name.starts_with("hotkeyatlas") || (ext == ".json" && !IsSettingsJson(it->path())))
+                    if (name.starts_with("hotkeyatlas") || (ext == ".json" && !IsSettingsJson(it->path()))) {
                         stats.Add(0, true);
-                    else
-                        ScanCounted(it->path(), data, out, stats, ext == ".json");
+                        continue;
+                    }
+                    std::vector<Binding> got;
+                    ScanCounted(it->path(), data, got, stats, ext == ".json");
+                    if (!got.empty() && modOff(it->path(), sub)) continue;  // hotkeys of a switched-off mod
+                    if (!got.empty()) markOwnInput(it->path(), sub, got);
+                    out.insert(out.end(), std::make_move_iterator(got.begin()), std::make_move_iterator(got.end()));
                 }
             }
+            // a mod key parked on a key no keyboard has is switched off (see IsPhantomKey);
+            // once the user moved it to a real key it is a bind again
+            const auto off = std::erase_if(out, [](const Binding& b) { return b.device == Device::Keyboard && IsPhantomKey(b.key); });
+            if (off) logger::info("scan: {} mod hotkey(s) on F13-F24 left out (switched off, e.g. by a menu launcher)", off);
             return out;
         }
 

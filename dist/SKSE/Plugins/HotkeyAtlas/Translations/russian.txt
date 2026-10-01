@@ -332,3 +332,13 @@ The bind works on a quick double press. A single press still does what it did, a
 The bind works when the button is held down for a moment. A short press still does what it did. = Бинд срабатывает, если подержать кнопку. Короткое нажатие делает то же, что и раньше.
 {0} (double tap) = {0} (двойное)
 {0} (hold) = {0} (удержание)
+{0} takes a single key or mouse button only: no Shift / Ctrl / Alt, combos, gamepad, double tap or hold. = {0} принимает только одну клавишу или кнопку мыши: без Shift / Ctrl / Alt, комбинаций, геймпада, двойного нажатия и удержания.
+Rebind failed: {0} = Не удалось переназначить: {0}
+Saved into {0}'s own settings file ({1}), {0} picks it up at once. A single key or mouse button only. = Сохраняется в собственный файл настроек {0} ({1}), {0} сразу его подхватывает. Только одна клавиша или кнопка мыши.
+this key can't be written there = эту клавишу туда записать нельзя
+{0} not found in {1} = {0} не найдено в {1}
+Press the new key or mouse button for: {0} ({1}) = Нажмите новую клавишу или кнопку мыши для: {0} ({1})
+A single key or mouse button: {0} doesn't support combos, Shift / Ctrl / Alt, the gamepad, double tap or hold. = Одна клавиша или кнопка мыши: {0} не поддерживает комбинации, Shift / Ctrl / Alt, геймпад, двойное нажатие и удержание.
+{0} has no key for this yet. Set one in its own settings menu (MCM, dMenu); after that it can be changed here too. = У {0} для этого пока нет клавиши. Назначьте её в собственном меню настроек мода (MCM, dMenu), после этого её можно будет менять и здесь.
+ENB keys can't be changed here. Change them in ENB's own menu or in enblocal.ini ([INPUT]) in the game folder. = Клавиши ENB здесь не меняются. Измените их в собственном меню ENB или в файле enblocal.ini ([INPUT]) в папке игры.
+{0} reads the keyboard itself, not through the game, so Hotkey Atlas can't move its keys. Change them in its own settings: {1}. = {0} читает клавиатуру сам, в обход игры, поэтому Hotkey Atlas не может переназначить его клавиши. Измените их в его собственных настройках: {1}.

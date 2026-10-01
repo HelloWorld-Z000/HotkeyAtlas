@@ -325,3 +325,13 @@ The bind works on a quick double press. A single press still does what it did, a
 The bind works when the button is held down for a moment. A short press still does what it did. = Skrót działa, gdy przycisk jest przez chwilę przytrzymany. Krótkie naciśnięcie nadal robi to, co wcześniej.
 {0} (double tap) = {0} (podwójnie)
 {0} (hold) = {0} (przytrzymanie)
+{0} takes a single key or mouse button only: no Shift / Ctrl / Alt, combos, gamepad, double tap or hold. = {0} przyjmuje tylko jeden klawisz lub przycisk myszy: bez Shift / Ctrl / Alt, kombinacji, pada, podwójnego naciśnięcia i przytrzymania.
+Rebind failed: {0} = Nie udało się zmienić przypisania: {0}
+Saved into {0}'s own settings file ({1}), {0} picks it up at once. A single key or mouse button only. = Zapisywane we własnym pliku ustawień {0} ({1}), {0} od razu je wczytuje. Tylko jeden klawisz lub przycisk myszy.
+this key can't be written there = tego klawisza nie można tam zapisać
+{0} not found in {1} = Nie znaleziono {0} w {1}
+Press the new key or mouse button for: {0} ({1}) = Naciśnij nowy klawisz lub przycisk myszy dla: {0} ({1})
+A single key or mouse button: {0} doesn't support combos, Shift / Ctrl / Alt, the gamepad, double tap or hold. = Jeden klawisz lub przycisk myszy: {0} nie obsługuje kombinacji, Shift / Ctrl / Alt, pada, podwójnego naciśnięcia ani przytrzymania.
+{0} has no key for this yet. Set one in its own settings menu (MCM, dMenu); after that it can be changed here too. = {0} nie ma jeszcze klawisza do tego. Ustaw go w jego własnym menu ustawień (MCM, dMenu); potem można go zmieniać także tutaj.
+ENB keys can't be changed here. Change them in ENB's own menu or in enblocal.ini ([INPUT]) in the game folder. = Klawiszy ENB nie można tu zmienić. Zmień je we własnym menu ENB lub w pliku enblocal.ini ([INPUT]) w folderze gry.
+{0} reads the keyboard itself, not through the game, so Hotkey Atlas can't move its keys. Change them in its own settings: {1}. = {0} sam odczytuje klawiaturę, z pominięciem gry, więc Hotkey Atlas nie może przenieść jego klawiszy. Zmień je w jego własnych ustawieniach: {1}.

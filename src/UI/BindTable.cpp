@@ -88,6 +88,13 @@ namespace HA::UI
                 Muted(TL("read-only"));
                 if (ImGui::IsItemHovered() && b.kind == Kind::ControlMap && b.device == Device::Mouse)
                     Tooltip(TL("Mouse movement is no button, it can't be moved."));
+                if (ImGui::IsItemHovered() && b.ownInput)
+                    Tooltip(TLF("{0} reads the keyboard itself, not through the game, so Hotkey Atlas can't move its keys. Change them in its own settings: {1}.",
+                        { b.owner, b.origin }));
+                else if (ImGui::IsItemHovered() && b.origin == "enblocal.ini")
+                    Tooltip(TL("ENB keys can't be changed here. Change them in ENB's own menu or in enblocal.ini ([INPUT]) in the game folder."));
+                else if (ImGui::IsItemHovered() && b.kind != Kind::ControlMap && b.key == kUnbound)
+                    Tooltip(TLF("{0} has no key for this yet. Set one in its own settings menu (MCM, dMenu); after that it can be changed here too.", { b.owner }));
                 if (b.overridden) {  // changed by an older version: can still be undone
                     ImGui::SameLine();
                     if (ImGui::Button(Id(TL("Reset"), "resetone").c_str())) Rebind(b, b.defaultKey);
@@ -96,6 +103,9 @@ namespace HA::UI
                 return;
             }
             if (ImGui::Button(b.key == kUnbound ? Id(TL("Assign"), "bind").c_str() : Id(TL("Rebind"), "rebind").c_str())) StartCapture(b);
+            if (ImGui::IsItemHovered() && b.kind == Kind::Yaml)
+                Tooltip(TLF("Saved into {0}'s own settings file ({1}), {0} picks it up at once. A single key or mouse button only.",
+                    { b.owner, b.origin }));
             if (b.key != kUnbound) {
                 ImGui::SameLine();
                 if (ImGui::Button(Id(TL("Unbind"), "unbind").c_str())) Rebind(b, kUnbound);

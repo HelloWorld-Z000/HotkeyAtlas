@@ -202,6 +202,21 @@ namespace HA
         return vk;
     }
 
+    // F13-F24 and the unused codes around them: no keyboard has these keys. Menu launchers
+    // (Risa's All In One Menu) park a mod's hotkey there to switch it off and open the menu
+    // themselves, so such a key is no bind anyone can press.
+    bool IsPhantomKey(std::uint32_t dik)
+    {
+        if (dik >= 0x64 && dik <= 0x6F) return true;  // F13-F23 and gaps
+        switch (dik) {
+        case 0x71: case 0x72: case 0x74: case 0x75: case 0x76: case 0x77: case 0x78: case 0x7A: case 0x7C: case 0x7F:
+        case 0x81:  // F24 / unused; 0x81: Risa's "F18"
+            return true;
+        default:
+            return false;
+        }
+    }
+
     std::uint8_t ModBitForDik(std::uint32_t dik)
     {
         if (dik == 42 || dik == 54) return kShift;

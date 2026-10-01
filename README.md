@@ -17,6 +17,10 @@ Powered by the SKSE Menu Framework, this mod scans and collects all in-game keyb
 
 The mod does not edit any original files where the keybinds originate. It relies strictly on its own configuration. Feel free to experiment, remap, or unbind anything without fear of breaking your configs. You can easily revert changes back to default at any time using a single-key reset, a full device reset, or by switching presets.
 
+One exception: **SkyrimNet** reads the keyboard on its own, so its keys can't be remapped the usual way. Rebinding a SkyrimNet key writes just that number into its `SKSE/Plugins/SkyrimNet/config/Hotkey.yaml`, which SkyrimNet picks up at once. The original key is kept in Hotkey Atlas's own settings, so Reset and presets put it back. SkyrimNet keys take a single key or mouse button (no modifiers, combos, gamepad, double tap or hold).
+
+Mod hotkeys set to F13-F24 are left out: no keyboard has those keys, and menu launchers such as Risa's All In One Menu park the hotkeys of the menus they open there.
+
 ## Presets
 
 Works simply and intuitively: just type a preset name, press Enter, and your preset is ready. All changes are saved on the fly (no need to constantly click a "Save" button). Want to switch to another setup? Just click the preset you want, and you're good to go.
