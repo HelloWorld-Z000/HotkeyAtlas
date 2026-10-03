@@ -47,7 +47,9 @@ namespace HA
                 b.defaultKey = rec->original;
                 return;
             }
-            if (b.device == Device::Keyboard && rec->key == inFile && rec->original != inFile) {
+            // only ini / json files were ever written (not OMO's KeyConfiguration.txt)
+            const bool writable = b.origin.ends_with(".ini") || b.origin.ends_with(".json");
+            if (writable && b.device == Device::Keyboard && rec->key == inFile && rec->original != inFile) {
                 // written into the mod's file by an older Hotkey Atlas: put the file back
                 std::string err;
                 if (!RestoreFileValue(b, rec->original, err)) {
@@ -702,9 +704,16 @@ namespace HA
         std::unordered_map<std::string, std::string> LoadTranslations(const fs::path& data, const std::string& mod)
         {
             std::unordered_map<std::string, std::string> map;
-            std::ifstream in(data / "Interface/Translations" / (mod + "_english.txt"), std::ios::binary);
-            if (!in) return map;
-            const std::string raw(std::istreambuf_iterator<char>(in), {});
+            std::string                                  raw;
+            if (std::ifstream in(data / "Interface/Translations" / (mod + "_english.txt"), std::ios::binary); in) {
+                raw.assign(std::istreambuf_iterator<char>(in), {});
+            } else {
+                // packed in the mod's BSA (Follower Live Package): the game's file system finds it
+                RE::BSResourceNiBinaryStream bsa("Interface\\Translations\\" + mod + "_english.txt");
+                if (!bsa.good() || !bsa.stream || !bsa.stream->totalSize || bsa.stream->totalSize > kMaxFileSize) return map;
+                raw.resize(bsa.stream->totalSize);
+                if (!bsa.read(raw.data(), static_cast<std::uint32_t>(raw.size()))) return map;
+            }
             if (raw.size() < 2 || static_cast<unsigned char>(raw[0]) != 0xFF || static_cast<unsigned char>(raw[1]) != 0xFE) return map;
 
             const auto* w   = reinterpret_cast<const wchar_t*>(raw.data() + 2);
@@ -989,7 +998,177 @@ namespace HA
             stats.Add(found, false);
         }
 
-        std::vector<Binding> ScanFiles(ScanStats& stats)
+        // Object Manipulation Overhaul: Data/Object Manipulation Overhaul/KeyConfiguration.txt,
+        // one "Action, Device, Key" line per key (an action may have several), key names as in
+        // Skyrim's controlmap, lower-cased by the mod. It reads the game's input events, so its
+        // keys are remapped by the input hook like any mod key.
+        void ScanOmo(const fs::path& data, std::vector<Binding>& out, ScanStats& stats, const LoadedMods& loaded)
+        {
+            const auto      file = data / "Object Manipulation Overhaul" / "KeyConfiguration.txt";
+            std::error_code ec;
+            if (!fs::exists(file, ec)) return;
+            if (loaded.Known() && !loaded.AnyLoaded({ "ObjectManipulationOverhaul" })) {
+                logger::info("scan: {} belongs to no loaded mod, left out", RelToData(file, data).generic_string());
+                return;
+            }
+            std::ifstream in(file, std::ios::binary);
+            if (!in) {
+                stats.Add(0, true);
+                return;
+            }
+
+            // names the mod knows beyond ParseKeyName's (its keyboard list is DirectInput's order)
+            static const std::map<std::string, std::uint32_t, std::less<>> kKeys = {
+                { "bracketleft", 26 }, { "bracketright", 27 }, { "kp_multiply", 55 }, { "kp_7", 71 }, { "kp_8", 72 }, { "kp_9", 73 },
+                { "kp_subtract", 74 }, { "kp_4", 75 }, { "kp_5", 76 }, { "kp_6", 77 }, { "kp_plus", 78 }, { "kp_1", 79 }, { "kp_2", 80 },
+                { "kp_3", 81 }, { "kp_0", 82 }, { "kp_decimal", 83 }, { "kp_enter", 156 }, { "kp_divide", 181 }, { "leftwin", 219 },
+                { "rightwin", 220 }
+            };
+            static const std::map<std::string, std::uint32_t, std::less<>> kMouse = {
+                { "leftbutton", kMouseLeft }, { "rightbutton", kMouseRight }, { "middlebutton", kMouseMiddle }, { "button3", kMouse4 },
+                { "button4", kMouse5 }, { "button5", kMouse6 }, { "button6", kMouse7 }, { "button7", kMouse8 },
+                { "wheelup", kMouseWheelUp }, { "wheeldown", kMouseWheelDown }
+            };
+            static const std::map<std::string, std::uint32_t, std::less<>> kPad = {
+                { "up", kPadUp }, { "down", kPadDown }, { "left", kPadLeft }, { "right", kPadRight }, { "start", kPadStart },
+                { "back", kPadBack }, { "leftthumb", kPadL3 }, { "rightthumb", kPadR3 }, { "leftshoulder", kPadLB },
+                { "rightshoulder", kPadRB }, { "a", kPadA }, { "b", kPadB }, { "x", kPadX }, { "y", kPadY },
+                { "lefttrigger", kPadLT }, { "righttrigger", kPadRT }
+            };
+
+            const auto            origin = RelToData(file, data).generic_string();
+            std::map<std::string, int> count;  // per action: "Rotate", "Rotate 2"
+            std::size_t           found = 0;
+            std::string           line;
+            for (int n = 0; std::getline(in, line); ++n) {
+                if (n == 0 && line.starts_with(kBom)) line.erase(0, kBom.size());
+                const auto t = Trim(line);
+                if (t.empty() || t[0] == '#') continue;
+                std::vector<std::string> cols;
+                for (std::size_t pos = 0; pos <= t.size();) {
+                    const auto c = t.find(',', pos);
+                    cols.push_back(Trim(t.substr(pos, c == npos ? npos : c - pos)));
+                    if (c == npos) break;
+                    pos = c + 1;
+                }
+                if (cols.size() < 3 || cols[0].empty()) continue;
+                const auto device = Lower(cols[1]);
+                const auto name   = Lower(cols[2]);
+
+                Binding b;
+                if (device == "keyboard") {
+                    if (const auto it = kKeys.find(name); it != kKeys.end()) {
+                        b.key = it->second;
+                    } else if (name.size() == 1 && name[0] >= '0' && name[0] <= '9') {
+                        b.key = name[0] == '0' ? 11 : 2 + (name[0] - '1');
+                    } else if (const auto k = ParseKeyName(name)) {
+                        b.key = *k;
+                    } else {
+                        continue;
+                    }
+                } else if (device == "mouse" || device == "gamepad") {
+                    const auto& table = device == "mouse" ? kMouse : kPad;
+                    const auto  it    = table.find(name);
+                    if (it == table.end()) continue;
+                    b.device = device == "mouse" ? Device::Mouse : Device::Gamepad;
+                    b.key    = it->second;
+                } else {
+                    continue;
+                }
+                const int nth = ++count[Lower(cols[0])];
+                b.action      = Humanize(cols[0]);  // "ToggleAdvancedMode" -> "Toggle Advanced Mode"
+                b.owner       = "Object Manipulation Overhaul";
+                b.context     = "Keys";
+                b.origin      = origin;
+                b.kind        = Kind::Ini;
+                b.editable    = true;
+                b.file        = file;
+                b.iniKey      = nth == 1 ? cols[0] : std::format("{} {}", cols[0], nth);
+                b.line        = n;
+                b.defaultKey  = CurrentCode(b);
+                MarkFileEdit(b);
+                out.push_back(std::move(b));
+                ++found;
+            }
+            stats.Add(found, false);
+        }
+
+        // Plain SkyUI menus: the keys their keymap options show live in script variables (saved
+        // with the game), found through the menu's compiled script. Such mods listen with
+        // RegisterForKey, which sees the game's input: remapped by the input hook.
+        void ScanPapyrusMcm(const fs::path& data, const std::vector<McmMenu>& menus, std::vector<Binding>& out, ScanStats& stats)
+        {
+            for (const auto& m : menus) {
+                const auto stem = fs::path(m.plugin).stem().string();
+                const auto tr   = stem.empty() ? std::unordered_map<std::string, std::string>{} : LoadTranslations(data, stem);
+                const auto text = [&](const std::string& s) {
+                    if (!s.starts_with('$')) return s;
+                    const auto it = tr.find(s);
+                    return it != tr.end() ? it->second : s.substr(1);
+                };
+                const auto owner = text(m.name);
+
+                std::size_t found = 0;
+                for (const auto& script : m.scripts) {
+                    for (const auto& k : ReadPexKeymaps(script)) {
+                        // "::PKEY_var" (an auto property) -> "PKEY"
+                        auto name = k.var;
+                        if (name.starts_with("::")) name.erase(0, 2);
+                        if (name.ends_with("_var")) name.erase(name.size() - 4);
+                        const auto var = Lower(k.var);
+
+                        const auto add = [&](int value, int index, const std::string& label) {
+                            Binding b;
+                            if (const auto button = ParseSkseButton(std::to_string(value))) {
+                                b.device = button->first;
+                                b.key    = button->second;
+                            } else if (value >= 2 && value <= 255) {
+                                b.key = static_cast<std::uint32_t>(value);
+                            } else {
+                                b.key = kUnbound;  // -1 / 0: no key set, the mod listens to nothing we could remap
+                            }
+                            b.action   = label.empty() ? Humanize(name) : text(label);
+                            b.owner    = owner;
+                            b.context  = "MCM";
+                            b.origin   = "Scripts/" + script + ".pex";
+                            b.kind     = Kind::Ini;
+                            b.editable = b.key != kUnbound;
+                            b.file     = data / "Scripts" / (script + ".pex");
+                            b.iniKey   = index < 0 ? name : std::format("{}[{}]", name, index);
+                            b.defaultKey = CurrentCode(b);
+                            MarkFileEdit(b);
+                            out.push_back(std::move(b));
+                            ++found;
+                        };
+
+                        if (k.global) {
+                            if (const auto it = m.globals.find(var); it != m.globals.end()) add(it->second, -1, k.label);
+                            continue;
+                        }
+                        if (k.index < 0 && !k.all) {
+                            if (const auto it = m.ints.find(var); it != m.ints.end()) add(it->second, -1, k.label);
+                            continue;
+                        }
+                        const auto arr = m.intArrays.find(var);
+                        if (arr == m.intArrays.end()) continue;
+                        if (!k.all) {
+                            if (k.index < static_cast<int>(arr->second.size())) add(arr->second[k.index], k.index, k.label);
+                            continue;
+                        }
+                        const auto labels = m.strArrays.find(Lower(k.labelArray));
+                        for (std::size_t i = 0; i < arr->second.size(); ++i) {
+                            const bool named = labels != m.strArrays.end() && i < labels->second.size() && !labels->second[i].empty();
+                            if (!named && labels != m.strArrays.end()) continue;  // a spare slot no option shows
+                            add(arr->second[i], static_cast<int>(i), named ? labels->second[i] : std::string());
+                        }
+                    }
+                }
+                stats.Add(found, false);
+                if (found) logger::info("scan: MCM {} ({}): {} hotkey(s) in its scripts", owner, m.plugin, found);
+            }
+        }
+
+        std::vector<Binding> ScanFiles(ScanStats& stats, const std::vector<McmMenu>& menus)
         {
             std::vector<Binding> out;
             const fs::path       data       = "Data";  // process cwd is the game folder; MO2's VFS hooks these calls
@@ -997,6 +1176,8 @@ namespace HA
             const auto           mcmHandled = ScanMcmHelper(data, out, stats, loaded);
             const auto           dmenuIni   = ScanDMenu(data, out, stats, loaded);
             ScanEnb(out, stats);
+            ScanOmo(data, out, stats, loaded);
+            ScanPapyrusMcm(data, menus, out, stats);
             if (!loaded.Known())
                 logger::warn("scan: could not list the loaded mods, configs of switched-off mods may show");
             else
@@ -1148,10 +1329,11 @@ namespace HA
         SKSE::GetTaskInterface()->AddTask([] {
             ApplyOverrides();            // game thread
             LoadBuiltInNotes();          // Notes.json edits show after a Rescan
-            auto cm = ReadControlMap();  // game thread
-            std::thread([cm = std::move(cm)]() mutable {
+            auto cm    = ReadControlMap();     // game thread
+            auto menus = SnapshotMcmMenus();   // game thread
+            std::thread([cm = std::move(cm), menus = std::move(menus)]() mutable {
                 ScanStats stats;
-                auto      files = ScanFiles(stats);
+                auto      files = ScanFiles(stats, menus);
                 Publish(std::move(cm), std::move(files), stats);
                 g_busy = false;
                 if (g_again.exchange(false) | g_restoredFiles.exchange(false)) Rescan();

@@ -194,6 +194,36 @@ namespace HA
     bool                         WriteYamlKey(const std::string& id, std::uint32_t code, std::string& err);
     void                         SyncYamlFiles(const Overrides& before, const Overrides& after);  // files follow the change set
 
+    // ---------------------------------------------------------------- SkyUI MCM menus (PapyrusMcm.cpp)
+    // Plain SkyUI menus (not MCM Helper) keep their keys in script variables, saved with the game.
+    // The menu's compiled script tells which variable each AddKeyMapOption shows; the values are
+    // read from the running scripts.
+
+    // One AddKeyMapOption(ST) call of a script, traced back to the script variable it shows.
+    struct PexKeymap
+    {
+        std::string var;            // script variable (an auto property's is "::Name_var")
+        int         index = -1;     // int array element; -1 = plain variable
+        bool        all   = false;  // a loop over the array (keys[i]): every element
+        bool        global = false; // the variable holds a GlobalVariable, the key is its value (Key.GetValueInt())
+        std::string label;          // literal option text ("$P_KEYMAP"), empty = unknown
+        std::string labelArray;     // string array holding the texts (loop form)
+    };
+    std::vector<PexKeymap> ReadPexKeymaps(const std::string& script);  // Scripts/<script>.pex, loose or in a BSA; cached
+
+    // A registered MCM menu as its script holds it right now.
+    struct McmMenu
+    {
+        std::string                                               name;     // as registered, may be "$..."
+        std::string                                               plugin;   // its quest's plugin, "3BBB.esp"
+        std::vector<std::string>                                  scripts;  // most derived first, without SkyUI's bases
+        std::unordered_map<std::string, int>                      ints;     // lower-case variable -> value
+        std::unordered_map<std::string, std::vector<int>>         intArrays;
+        std::unordered_map<std::string, std::vector<std::string>> strArrays;
+        std::unordered_map<std::string, int>                      globals;  // variable holding a GlobalVariable -> its value
+    };
+    std::vector<McmMenu> SnapshotMcmMenus();  // game thread
+
     // ---------------------------------------------------------------- translation (Translation.cpp)
 
     extern std::mutex  g_trLock;
